@@ -40,24 +40,66 @@ def run_command(command):
         return f"Error: {str(e)}"
 
 def check_usb_devices():
-    """Check USB devices"""
+    """Check USB devices using multiple methods"""
     print_section("USB Devices")
-    print(run_command("lsusb"))
+    
+    # Try different commands to find USB devices
+    print("Method 1: Using /sys/bus/usb/devices")
+    print(run_command("ls -l /sys/bus/usb/devices/"))
+    
+    print("\nMethod 2: Using /proc/bus/usb")
+    print(run_command("ls -l /proc/bus/usb/ 2>/dev/null || echo 'Not available'"))
+    
+    print("\nMethod 3: Using sysfs attributes")
+    print(run_command("find /sys/bus/usb/devices -maxdepth 1 -type l -exec cat {}/manufacturer {}/product 2>/dev/null \\; 2>/dev/null || echo 'Not available'"))
+    
+    print("\nMethod 4: Checking USB character devices")
+    print(run_command("grep -l USB /sys/class/video4linux/*/name 2>/dev/null || echo 'No USB video devices found'"))
 
 def check_video_devices():
     """Check video devices"""
     print_section("Video Devices")
-    print(run_command("ls -l /dev/video*"))
-    print("\nV4L2 Devices:")
-    print(run_command("v4l2-ctl --list-devices"))
+    
+    # Check for video device nodes
+    print("Video device nodes:")
+    print(run_command("ls -l /dev/video* 2>/dev/null || echo 'No video devices found in /dev/'"))
+    
+    # Check if V4L2 is available
+    print("\nV4L2 Devices (if available):")
+    print(run_command("v4l2-ctl --list-devices 2>/dev/null || echo 'v4l2-ctl command not available'"))
+    
+    # Alternative checks for video devices
+    print("\nChecking alternative video device locations:")
+    print(run_command("ls -l /sys/class/video4linux/ 2>/dev/null || echo 'No video4linux devices found'"))
+    
+    # If available, read device info from sysfs
+    print("\nVideo device information from sysfs:")
+    print(run_command("find /sys/class/video4linux -type d -name 'video*' -exec cat {}/name {}/dev 2>/dev/null \\; 2>/dev/null || echo 'No device information available'"))
+    
+    # Check loaded camera modules
+    print("\nLoaded camera kernel modules:")
+    print(run_command("lsmod | grep -E 'uvc|camera|video' 2>/dev/null || echo 'No camera modules found'"))
 
 def check_kernel_logs():
     """Check kernel logs for camera/video related messages"""
     print_section("Kernel Logs (Camera/Video)")
-    print("Camera-related messages:")
-    print(run_command("dmesg | grep -i camera"))
-    print("\nVideo-related messages:")
-    print(run_command("dmesg | grep -i video"))
+    
+    # Try to check for kernel modules instead of dmesg which may require privileges
+    print("Camera/Video kernel modules:")
+    print(run_command("lsmod | grep -E 'video|camera|webcam|uvc' 2>/dev/null || echo 'No camera modules found or lsmod not available'"))
+    
+    # Check for camera in sysfs
+    print("\nCamera hardware information from sysfs:")
+    print(run_command("find /sys/devices/ -name '*camera*' 2>/dev/null || echo 'No camera devices found in sysfs'"))
+    
+    # Look for loaded USB camera drivers
+    print("\nUSB video class drivers:")
+    print(run_command("find /sys/bus/usb/drivers -name '*video*' 2>/dev/null || echo 'No USB video drivers found'"))
+    
+    # Try to get basic hardware info without dmesg privileges
+    print("\nBasic hardware info:")
+    print(run_command("cat /proc/cpuinfo | grep 'model name' | head -1 2>/dev/null || echo 'CPU info not available'"))
+    print(run_command("cat /proc/version 2>/dev/null || echo 'Kernel version not available'"))
 
 def test_opencv_capture():
     """Test OpenCV camera capture"""

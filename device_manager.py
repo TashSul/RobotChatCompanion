@@ -78,14 +78,38 @@ class DeviceManager:
                 try:
                     # First check if camera device exists
                     import subprocess
-                    camera_check = subprocess.run("ls -l /dev/video*", shell=True, capture_output=True)
                     
-                    # Log available camera devices
+                    # Try multiple methods to detect camera devices
+                    self.logger.info("Checking for camera devices...")
+                    
+                    # Method 1: Check for video devices in /dev
+                    camera_check = subprocess.run("ls -l /dev/video* 2>/dev/null", 
+                                                  shell=True, capture_output=True)
+                    
                     if camera_check.returncode == 0:
                         camera_devices = camera_check.stdout.decode().strip()
-                        self.logger.info(f"Available camera devices: {camera_devices}")
+                        self.logger.info(f"Found video devices in /dev: {camera_devices}")
                     else:
                         self.logger.warning("No camera devices found in /dev/video*")
+                        
+                        # Method 2: Check for video4linux devices in sysfs
+                        camera_check = subprocess.run("ls -l /sys/class/video4linux/ 2>/dev/null", 
+                                                      shell=True, capture_output=True)
+                        if camera_check.returncode == 0:
+                            camera_devices = camera_check.stdout.decode().strip()
+                            self.logger.info(f"Found video devices in sysfs: {camera_devices}")
+                        else:
+                            self.logger.warning("No video4linux devices found in sysfs")
+                            
+                            # Method 3: Check for USB cameras
+                            camera_check = subprocess.run(
+                                "find /sys/bus/usb/devices -type l -exec cat {}/manufacturer {}/product 2>/dev/null \\; 2>/dev/null | grep -i camera", 
+                                shell=True, capture_output=True)
+                            if camera_check.returncode == 0:
+                                camera_info = camera_check.stdout.decode().strip()
+                                self.logger.info(f"Found USB camera info: {camera_info}")
+                            else:
+                                self.logger.warning("No USB camera devices detected")
                         
                     # Try specific camera devices if default fails
                     camera_paths = [self.camera_id, "/dev/video0", "/dev/usb_cam", 0, 1, 2]
