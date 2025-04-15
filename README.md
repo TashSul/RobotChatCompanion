@@ -176,6 +176,23 @@ python3 test_object_recognition.py
 python3 test_object_recognition.py --simulate
 ```
 
+### Camera Diagnostics Tool
+
+For comprehensive camera troubleshooting:
+
+```bash
+# Run full camera diagnostics
+python3 test_camera_diagnostics.py
+```
+
+This tool will check:
+- USB device connections
+- Video device nodes
+- Kernel driver status
+- OpenCV camera compatibility
+- Raspberry Pi camera module
+- And provide troubleshooting tips
+
 ## Troubleshooting
 
 ### General Issues
@@ -230,6 +247,35 @@ python3 test_object_recognition.py --simulate
 2. **View camera details**:
    ```bash
    v4l2-ctl --list-devices
+   ```
+   
+3. **Verify USB camera connection**:
+   ```bash
+   lsusb
+   ```
+   Look for entries containing "camera" or "webcam" in the output.
+
+4. **Check kernel driver**:
+   ```bash
+   dmesg | grep -i camera
+   dmesg | grep -i video
+   ```
+   
+5. **Try direct device access**:
+   If your camera isn't appearing as /dev/video0, try other device paths:
+   ```bash
+   # For Raspberry Pi camera module:
+   raspistill -o test.jpg
+   
+   # For USB webcams on different device nodes:
+   python3 -c "import cv2; cap = cv2.VideoCapture(1); ret, frame = cap.read(); print(f'Camera 1 capture success: {ret}'); cap.release()"
+   python3 -c "import cv2; cap = cv2.VideoCapture(2); ret, frame = cap.read(); print(f'Camera 2 capture success: {ret}'); cap.release()"
+   ```
+   
+6. **Restart USB subsystem** (if camera was disconnected/reconnected):
+   ```bash
+   sudo modprobe -r uvcvideo
+   sudo modprobe uvcvideo
    ```
 
 ### Object Recognition Issues

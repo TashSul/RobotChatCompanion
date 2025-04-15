@@ -76,15 +76,46 @@ class DeviceManager:
             # Initialize camera if cv2 is available
             if cv2 is not None:
                 try:
-                    self.camera = cv2.VideoCapture(self.camera_id)
-                    if not self.camera.isOpened():
-                        self.logger.warning("Failed to open camera, will retry on Raspberry Pi")
+                    # First check if camera device exists
+                    import subprocess
+                    camera_check = subprocess.run("ls -l /dev/video*", shell=True, capture_output=True)
+                    
+                    # Log available camera devices
+                    if camera_check.returncode == 0:
+                        camera_devices = camera_check.stdout.decode().strip()
+                        self.logger.info(f"Available camera devices: {camera_devices}")
                     else:
-                        self.logger.info("Camera initialized successfully")
+                        self.logger.warning("No camera devices found in /dev/video*")
+                        
+                    # Try specific camera devices if default fails
+                    camera_paths = [self.camera_id, "/dev/video0", "/dev/usb_cam", 0, 1, 2]
+                    
+                    # Try each possible camera device
+                    for cam_id in camera_paths:
+                        try:
+                            self.logger.info(f"Trying camera device: {cam_id}")
+                            self.camera = cv2.VideoCapture(cam_id)
+                            if self.camera.isOpened():
+                                self.logger.info(f"Camera initialized successfully with device {cam_id}")
+                                break
+                        except Exception as e:
+                            self.logger.warning(f"Failed to open camera {cam_id}: {str(e)}")
+                    
+                    # Check if we found a working camera
+                    if self.camera is None or not self.camera.isOpened():
+                        if not self.simulation_enabled:
+                            self.logger.error("Failed to open camera - hardware required but not available")
+                        else:
+                            self.logger.warning("Failed to open camera, will use simulation")
+                            
                 except Exception as e:
                     self.logger.warning(f"Camera initialization error: {str(e)}")
+                    if not self.simulation_enabled:
+                        self.logger.error("Camera is required but unavailable - please check USB connections")
             else:
                 self.logger.warning("OpenCV (cv2) not available - camera functions disabled")
+                if not self.simulation_enabled:
+                    self.logger.error("OpenCV required for camera functions but not installed")
 
             # Welcome message
             self.speak_text("System initialized")
