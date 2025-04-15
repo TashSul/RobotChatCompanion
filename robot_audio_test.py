@@ -15,9 +15,9 @@ import time
 import tempfile
 import argparse
 
-# Default device settings based on your configuration
-DEFAULT_MIC = "plughw:3,0"  # USB PnP Sound Device
-DEFAULT_SPEAKER = "plughw:2,0"  # iStore Audio
+# Default device settings based on hardware detection
+DEFAULT_MIC = "plughw:3,0"  # USB PnP Sound Device (microphone)
+DEFAULT_SPEAKER = "plughw:2,0"  # iStore Audio (speaker)
 TEMP_DIR = tempfile.gettempdir()
 
 def test_speaker(speaker_device):

@@ -23,12 +23,12 @@ class DeviceManager:
         # Audio recording parameters
         self.record_seconds = 5
         
-        # ALSA device names for Raspberry Pi USB audio
-        self.microphone_device = "plughw:3,0"  # USB PnP Sound Device
-        self.speaker_device = "plughw:2,0"     # iStore Audio
+        # ALSA device names for Raspberry Pi USB audio - based on hardware detection
+        self.microphone_device = "plughw:3,0"  # USB PnP Sound Device (microphone)
+        self.speaker_device = "plughw:2,0"     # iStore Audio (speaker)
         
-        # Camera ID - usually 0 for USB camera
-        self.camera_id = 0
+        # Camera ID - video0 for USB camera
+        self.camera_id = 0  # /dev/usb_cam -> video0
 
         # Temporary file for audio recording
         self.temp_wav_file = os.path.join(tempfile.gettempdir(), "robot_audio.wav")

@@ -17,8 +17,8 @@ import subprocess
 import tempfile
 import time
 
-DEFAULT_MIC = "plughw:3,0"      # Default microphone device 
-DEFAULT_SPEAKER = "plughw:2,0"  # Default speaker device
+DEFAULT_MIC = "plughw:3,0"      # USB PnP Sound Device (microphone)
+DEFAULT_SPEAKER = "plughw:2,0"  # iStore Audio (speaker)
 TEMP_DIR = tempfile.gettempdir()
 
 def test_speaker(device):

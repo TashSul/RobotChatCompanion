@@ -72,9 +72,9 @@ def test_audio_capabilities():
     with open(test_file, "w") as f:
         f.write("This is a test of the audio system.")
     
-    # Define test devices
-    mic_device = "plughw:3,0"   # Default microphone device
-    speaker_device = "plughw:2,0"  # Default speaker device
+    # Define test devices based on hardware detection
+    mic_device = "plughw:3,0"   # USB PnP Sound Device (microphone)
+    speaker_device = "plughw:2,0"  # iStore Audio (speaker)
     
     # Test text-to-speech with aplay
     print(f"\nTesting text-to-speech with espeak and aplay on {speaker_device}...")
