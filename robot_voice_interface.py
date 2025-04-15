@@ -1,6 +1,7 @@
 import time
 import signal
 import sys
+import argparse
 from logger_config import setup_logger
 from device_manager import DeviceManager
 from ai_processor import AIProcessor
@@ -100,7 +101,36 @@ class RobotVoiceInterface:
             self.logger.error(f"Error during cleanup: {str(e)}")
 
 def main():
+    # Parse command line arguments
+    parser = argparse.ArgumentParser(description='Robot Voice Interface')
+    parser.add_argument('--no-sim', action='store_true', 
+                        help='Disable simulation mode (for use on actual hardware)')
+    parser.add_argument('--stop', action='store_true',
+                        help='Stop the running voice interface')
+    args = parser.parse_args()
+    
+    # Handle stop command
+    if args.stop:
+        print("Sending stop signal to any running robot voice interface...")
+        try:
+            # Try to kill any existing process
+            import subprocess
+            subprocess.run("pkill -f robot_voice_interface.py", shell=True)
+            print("Stop signal sent successfully.")
+            return
+        except Exception as e:
+            print(f"Error sending stop signal: {str(e)}")
+            return
+
+    # Create and run the interface
     robot_interface = RobotVoiceInterface()
+    
+    # Set simulation flag if requested
+    if args.no_sim:
+        # Pass flag to device manager to disable simulation
+        robot_interface.device_manager.simulation_enabled = False
+        print("Simulation mode disabled - running in hardware mode only")
+    
     try:
         robot_interface.run()
     except Exception as e:

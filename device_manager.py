@@ -21,6 +21,9 @@ class DeviceManager:
         self.logger = logger
         self.camera = None  # Will hold the camera object if available
         self.recognizer = sr.Recognizer()
+        
+        # Simulation mode flag - default is enabled for development environments
+        self.simulation_enabled = True
 
         # Audio recording parameters
         self.record_seconds = 5
@@ -130,7 +133,8 @@ class DeviceManager:
             self.logger.info("Listening...")
             
             # Check if we're running in a development environment without audio hardware
-            if not self.check_audio_hardware():
+            # and simulation is enabled
+            if not self.check_audio_hardware() and self.simulation_enabled:
                 self.logger.warning("No audio hardware detected - using simulated input")
                 
                 # Simulate some input for testing
@@ -155,6 +159,11 @@ class DeviceManager:
                 text = random.choice(simulated_phrases)
                 self.logger.info(f"Simulated text input: {text}")
                 return text
+            
+            # If simulation is disabled but no hardware is available, return empty to wait for hardware
+            if not self.check_audio_hardware() and not self.simulation_enabled:
+                self.logger.error("Audio hardware required but not available - simulation disabled")
+                return ""
             
             # If hardware is available, use it
             # Record audio using arecord command
@@ -201,11 +210,17 @@ class DeviceManager:
             self.logger.info(f"Speaking: {text}")
             
             # Check if we're running in a development environment without audio hardware
-            if not self.check_audio_hardware():
+            # and simulation is enabled
+            if not self.check_audio_hardware() and self.simulation_enabled:
                 self.logger.warning("No audio hardware detected - speech output simulated")
                 # In a real environment with hardware, the text would be spoken aloud
                 # Just log the output for development
                 print(f"🔊 ROBOT SAYS: \"{text}\"")
+                return
+            
+            # If simulation is disabled but no hardware is available, log error
+            if not self.check_audio_hardware() and not self.simulation_enabled:
+                self.logger.error("Audio hardware required for speech but not available - simulation disabled")
                 return
             
             # Create a temporary file for the text
@@ -260,7 +275,8 @@ class DeviceManager:
         frame = self.capture_image()
         
         # Check if we're running in a development environment without camera hardware
-        if frame is None:
+        # and simulation is enabled
+        if frame is None and self.simulation_enabled:
             self.logger.warning("No camera or frame detected - using simulated image recognition")
             
             # Provide a simulated response for testing
@@ -275,6 +291,11 @@ class DeviceManager:
             result = random.choice(simulated_responses)
             self.logger.info(f"Simulated image recognition: {result}")
             return result
+            
+        # If simulation is disabled but no camera is available, return error message
+        if frame is None and not self.simulation_enabled:
+            self.logger.error("Camera hardware required but not available - simulation disabled")
+            return "I'm unable to see anything right now. My camera appears to be unavailable."
         
         try:
             # Convert the OpenCV frame to a format that can be sent to OpenAI

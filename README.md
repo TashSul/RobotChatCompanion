@@ -102,9 +102,21 @@ If your devices are different, modify the settings in `device_manager.py`.
 ## Running the Interface
 
 ```bash
-# Run the main interface
+# Run the main interface (with simulation fallback for development)
 python3 robot_voice_interface.py
+
+# Run in hardware-only mode (disable simulation fallbacks)
+python3 robot_voice_interface.py --no-sim
+
+# Stop a running instance
+python3 robot_voice_interface.py --stop
 ```
+
+### Command-Line Options
+
+- **Default Mode**: When run without options, the system will use simulation mode as a fallback when hardware is not available.
+- **`--no-sim`**: Disables simulation mode, requiring actual hardware to be present. Use this on the Raspberry Pi with real devices.
+- **`--stop`**: Stops any running instance of the robot voice interface.
 
 ### Expected Behavior
 
@@ -165,6 +177,24 @@ python3 test_object_recognition.py --simulate
 ```
 
 ## Troubleshooting
+
+### General Issues
+
+1. **Stop a running instance**:
+   If the application is stuck or you need to restart it:
+   ```bash
+   # Stop any running instances
+   python3 robot_voice_interface.py --stop
+   
+   # Or kill processes manually
+   pkill -f robot_voice_interface.py
+   ```
+
+2. **Force hardware-only mode**:
+   If you want to ensure the application only uses real hardware:
+   ```bash
+   python3 robot_voice_interface.py --no-sim
+   ```
 
 ### Audio Issues
 
@@ -236,7 +266,21 @@ Log files are automatically generated in the project directory with timestamps, 
 
 ## Development Mode
 
-When running in environments without hardware (like development machines), the system will automatically detect the absence of audio devices and use simulated input/output for testing.
+When running in environments without hardware (like development machines), the system will automatically detect the absence of audio devices and use simulated input/output for testing. 
+
+### Simulation Mode
+
+The system has built-in simulation capabilities for development and testing:
+
+1. **Default Mode**: Automatically falls back to simulation when hardware is not detected
+2. **Disable Simulation**: Use `--no-sim` flag to run in hardware-only mode
+3. **Stop Running Instances**: Use `--stop` flag to terminate any running instances
+
+Simulation mode provides:
+- Randomized text inputs to simulate speech recognition
+- Console output to simulate speech synthesis
+- Simulated camera image recognition
+- Fallback responses for all hardware interactions
 
 ## Git Repository Management
 
