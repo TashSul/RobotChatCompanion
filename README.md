@@ -6,14 +6,17 @@ A Python-powered intelligent voice interface for a humanoid robot, optimized for
 
 This project creates a voice-based conversational interface for a Hiwonder Ainex humanoid robot running on Raspberry Pi 5 with Ubuntu. The system utilizes:
 
-- OpenAI GPT-4 for natural language processing and conversation
-- USB camera for vision capabilities
+- OpenAI GPT-4o for natural language processing and conversation
+- OpenAI Vision API for object recognition and scene understanding
+- USB camera for visual perception and object identification
 - USB microphone and speaker for audio interactions
 - Direct hardware access via ALSA commands for reliable device management
 
 ## Key Features
 
 - Seamless voice interaction with ChatGPT API integration
+- Object recognition and visual perception powered by OpenAI Vision
+- Trigger phrases for activating camera-based object identification
 - Hardware-optimized audio capture and playback
 - Automatic USB device detection and configuration
 - Error-resilient operation with exponential backoff
@@ -111,6 +114,16 @@ When running correctly, you should see:
 3. The system will listen for your voice input through the microphone
 4. When you speak, it will process your words through ChatGPT and respond verbally
 
+### Using Object Recognition
+
+The robot can identify objects through its camera. To activate this feature:
+1. Use trigger phrases like "What do you see?", "What is this?", or "Identify this object"
+2. The robot will respond with "Looking at what's in front of me..."
+3. It will then take a photo with the camera and analyze the image using OpenAI Vision API
+4. The robot will then verbally describe what it sees
+
+This feature works best with good lighting and the object clearly visible to the camera.
+
 ## Testing Tools
 
 We provide several testing scripts to verify your hardware setup:
@@ -137,6 +150,18 @@ python3 audio_device_test.py --list
 
 ```bash
 python3 robot_audio_test.py
+```
+
+### Object Recognition Test
+
+To test the camera and object recognition capabilities:
+
+```bash
+# Test with real camera
+python3 test_object_recognition.py
+
+# Test in simulation mode (no camera required)
+python3 test_object_recognition.py --simulate
 ```
 
 ## Troubleshooting
@@ -177,14 +202,33 @@ python3 robot_audio_test.py
    v4l2-ctl --list-devices
    ```
 
+### Object Recognition Issues
+
+1. **Verify OpenAI API key is set**:
+   ```bash
+   echo $OPENAI_API_KEY
+   ```
+   If it's not set or incorrect, update it according to the installation instructions.
+
+2. **Check camera functionality**:
+   Use a simple camera test to ensure the camera is working properly:
+   ```bash
+   python3 -c "import cv2; cap = cv2.VideoCapture(0); ret, frame = cap.read(); print(f'Camera capture success: {ret}'); cv2.imwrite('camera_test.jpg', frame) if ret else print('Camera capture failed'); cap.release()"
+   ```
+
+3. **Test OpenAI Vision API manually**:
+   ```bash
+   python3 -c "import os, openai, base64; client = openai.OpenAI(api_key=os.getenv('OPENAI_API_KEY')); print('API key loaded'); print('If this fails, check your OpenAI API key')"
+   ```
+
 ## Project Structure
 
-- `robot_voice_interface.py` - Main application entry point
-- `device_manager.py` - Handles device initialization and hardware interfaces
-- `ai_processor.py` - Manages OpenAI API interactions
+- `robot_voice_interface.py` - Main application entry point with voice and vision interaction
+- `device_manager.py` - Handles device initialization, hardware interfaces, and object recognition
+- `ai_processor.py` - Manages OpenAI API interactions and conversation context
 - `logger_config.py` - Configures logging system
-- `*.md` - Documentation files
-- Various test scripts for hardware verification
+- `*.md` - Documentation files including hardware setup instructions
+- Various test scripts for hardware, audio, and API verification
 
 ## Log Files
 

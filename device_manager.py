@@ -5,6 +5,8 @@ import wave
 import speech_recognition as sr
 import logging
 import time
+import base64
+import openai
 from typing import Optional
 
 # Import cv2 with error handling for environments without it
@@ -144,7 +146,11 @@ class DeviceManager:
                     "What time is it",
                     "Tell me about the weather",
                     "What can you do",
-                    "Tell me a joke"
+                    "Tell me a joke",
+                    "What do you see in front of you",
+                    "Can you identify this object",
+                    "What am I holding",
+                    "Look at this and tell me what it is"
                 ]
                 text = random.choice(simulated_phrases)
                 self.logger.info(f"Simulated text input: {text}")
@@ -245,6 +251,86 @@ class DeviceManager:
             if self._should_retry(f"Camera error: {str(e)}"):
                 self.logger.error(f"Error capturing image: {str(e)}")
             return None
+
+    def identify_object(self) -> str:
+        """Capture an image and use OpenAI to identify objects in it"""
+        self.logger.info("Attempting to identify objects in camera view...")
+        
+        # First, capture an image from the camera
+        frame = self.capture_image()
+        
+        # Check if we're running in a development environment without camera hardware
+        if frame is None:
+            self.logger.warning("No camera or frame detected - using simulated image recognition")
+            
+            # Provide a simulated response for testing
+            simulated_responses = [
+                "I can see what appears to be a coffee mug on a desk.",
+                "There seems to be a smartphone in the image.",
+                "I can see a book or notebook on a surface.",
+                "It looks like a houseplant, possibly a small succulent.",
+                "I can see what appears to be a pair of headphones."
+            ]
+            import random
+            result = random.choice(simulated_responses)
+            self.logger.info(f"Simulated image recognition: {result}")
+            return result
+        
+        try:
+            # Convert the OpenCV frame to a format that can be sent to OpenAI
+            # First save the image to a temporary file
+            temp_img_path = os.path.join(tempfile.gettempdir(), "robot_vision.jpg")
+            cv2.imwrite(temp_img_path, frame)
+            
+            # Read the image file and encode it as base64
+            with open(temp_img_path, "rb") as image_file:
+                base64_image = base64.b64encode(image_file.read()).decode('utf-8')
+            
+            # Create OpenAI client
+            client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+            
+            # Ensure OpenAI API key is available
+            api_key = os.getenv("OPENAI_API_KEY")
+            if not api_key:
+                self.logger.error("OpenAI API key is not available")
+                return "I'm unable to analyze the image. My vision system requires setup."
+            
+            # Send the image to OpenAI's Vision model for analysis
+            try:
+                response = client.chat.completions.create(
+                    model="gpt-4o",  # the newest OpenAI model is "gpt-4o" which was released May 13, 2024
+                    messages=[
+                        {
+                            "role": "system",
+                            "content": "You are a vision assistant helping a robot identify objects through its camera. Describe what you see clearly and concisely. Focus on the main objects in view, their approximate positions, and any notable characteristics."
+                        },
+                        {
+                            "role": "user",
+                            "content": [
+                                {"type": "text", "text": "What objects do you see in this image? Please describe them clearly but concisely, as if you're telling a person what they're holding or what's in front of them."},
+                                {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}}
+                            ]
+                        }
+                    ],
+                    max_tokens=300
+                )
+            except openai.OpenAIError as e:
+                self.logger.error(f"OpenAI API error during image analysis: {str(e)}")
+                return "I encountered an issue with my vision system. I can't identify what's in the image right now."
+            
+            # Extract the result
+            result = response.choices[0].message.content
+            self.logger.info(f"Object identification result: {result}")
+            
+            # Clean up the temporary file
+            if os.path.exists(temp_img_path):
+                os.remove(temp_img_path)
+                
+            return result
+            
+        except Exception as e:
+            self.logger.error(f"Error during object identification: {str(e)}")
+            return f"I'm having trouble identifying objects right now. Error: {str(e)}"
 
     def cleanup(self):
         """Clean up and release all devices"""

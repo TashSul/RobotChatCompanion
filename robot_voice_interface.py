@@ -47,14 +47,40 @@ class RobotVoiceInterface:
                 user_input = self.device_manager.capture_audio()
 
                 if user_input:
-                    # Process through AI
-                    ai_response = self.ai_processor.process_input(user_input)
-
-                    if ai_response:
-                        # Convert response to speech
-                        self.device_manager.speak_text(ai_response)
+                    # Check if this is an object identification request
+                    if any(phrase in user_input.lower() for phrase in [
+                        "what do you see", 
+                        "what is this", 
+                        "identify this", 
+                        "what object", 
+                        "recognize this",
+                        "look at this",
+                        "what's in front of you",
+                        "can you see",
+                        "what am i holding"
+                    ]):
+                        # This is an object identification request
+                        self.logger.info("Object identification request detected")
+                        self.device_manager.speak_text("Looking at what's in front of me...")
+                        
+                        # Use the camera to identify objects
+                        identification_result = self.device_manager.identify_object()
+                        
+                        # Respond with the identification result
+                        self.device_manager.speak_text(identification_result)
+                        
+                        # Also update the AI with this context
+                        context_update = f"User asked to identify an object. I responded: {identification_result}"
+                        self.ai_processor.process_input(context_update)
                     else:
-                        self.device_manager.speak_text("I'm sorry, I couldn't process that request")
+                        # Process through AI for normal conversation
+                        ai_response = self.ai_processor.process_input(user_input)
+
+                        if ai_response:
+                            # Convert response to speech
+                            self.device_manager.speak_text(ai_response)
+                        else:
+                            self.device_manager.speak_text("I'm sorry, I couldn't process that request")
 
                 time.sleep(0.1)  # Small delay to prevent CPU overuse
 

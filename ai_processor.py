@@ -27,7 +27,7 @@ class AIProcessor:
             response = self.openai_client.chat.completions.create(
                 model=self.model,
                 messages=[
-                    {"role": "system", "content": "You are a helpful assistant for a humanoid robot. Keep your responses concise and natural for spoken conversation."}, 
+                    {"role": "system", "content": "You are a helpful assistant for a Hiwonder Ainex humanoid robot. You have access to a camera and can identify objects when asked. Keep your responses concise and natural for spoken conversation. If users ask you to identify objects, suggest they try phrases like 'What do you see?' or 'What am I holding?'"}, 
                     *self.conversation_history
                 ]
             )
