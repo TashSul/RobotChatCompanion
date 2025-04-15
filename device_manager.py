@@ -1,32 +1,38 @@
-import cv2
-import pyaudio
+import subprocess
+import os
+import tempfile
 import wave
 import speech_recognition as sr
-import pyttsx3
 import logging
 import time
 from typing import Optional
 
+# Import cv2 with error handling for environments without it
+try:
+    import cv2
+except ImportError:
+    cv2 = None
+    print("WARNING: OpenCV (cv2) module not available - camera functions will be limited")
+
 class DeviceManager:
     def __init__(self, logger: logging.Logger):
         self.logger = logger
-        self.camera: Optional[cv2.VideoCapture] = None
-        self.audio = pyaudio.PyAudio()
+        self.camera = None  # Will hold the camera object if available
         self.recognizer = sr.Recognizer()
-        self.tts_engine = pyttsx3.init()
 
         # Audio recording parameters
-        self.format = pyaudio.paInt16
-        self.channels = 1
-        self.rate = 16000
-        self.chunk = 1024
         self.record_seconds = 5
+        
+        # ALSA device names for Raspberry Pi USB audio
+        self.microphone_device = "plughw:3,0"  # USB PnP Sound Device
+        self.speaker_device = "plughw:2,0"     # iStore Audio
+        
+        # Camera ID - usually 0 for USB camera
+        self.camera_id = 0
 
-        # Device IDs - adjust these for your Raspberry Pi setup
-        self.camera_id = 0  # Usually 0 for USB camera
-        self.microphone_id = None  # Will be detected automatically
-        self.speaker_id = None  # Will be detected automatically
-
+        # Temporary file for audio recording
+        self.temp_wav_file = os.path.join(tempfile.gettempdir(), "robot_audio.wav")
+        
         # Retry parameters
         self.last_error_time = 0
         self.retry_delay = 1  # Start with 1 second delay
@@ -34,60 +40,51 @@ class DeviceManager:
         self.last_error_message = None
 
     def detect_devices(self):
-        """Detect and configure available audio devices"""
-        # Find microphone
+        """Check audio devices using aplay and arecord"""
         try:
-            mic_list = sr.Microphone.list_microphone_names()
-            self.logger.info(f"Available microphones: {mic_list}")
-            if mic_list:
-                # Use the first available microphone
-                self.microphone_id = mic_list.index(mic_list[0])
+            # Check speaker using aplay
+            self.logger.info(f"Testing speaker device: {self.speaker_device}")
+            result = subprocess.run(
+                f"speaker-test -D {self.speaker_device} -c 1 -t sine -f 440 -l 1", 
+                shell=True, 
+                stderr=subprocess.PIPE
+            )
+            if result.returncode != 0:
+                self.logger.warning(f"Speaker test warning: {result.stderr.decode()}")
+                
+            # No direct way to test microphone without recording, so we'll just log the device
+            self.logger.info(f"Using microphone device: {self.microphone_device}")
+            
         except Exception as e:
-            self.logger.warning(f"Microphone detection error: {str(e)}")
-
-        # Find speaker
-        try:
-            info = self.audio.get_host_api_info_by_index(0)
-            num_devices = info.get('deviceCount')
-            for i in range(num_devices):
-                if self.audio.get_device_info_by_host_api_device_index(0, i).get('maxOutputChannels') > 0:
-                    self.speaker_id = i
-                    break
-        except Exception as e:
-            self.logger.warning(f"Speaker detection error: {str(e)}")
+            self.logger.warning(f"Device detection error: {str(e)}")
 
     def initialize_devices(self):
         """Initialize all USB devices"""
         try:
-            # Detect available devices
+            # Print device configuration
+            self.logger.info(f"Using microphone device: {self.microphone_device}")
+            self.logger.info(f"Using speaker device: {self.speaker_device}")
+            
+            # Test devices
             self.detect_devices()
 
-            # Initialize camera
-            self.camera = cv2.VideoCapture(self.camera_id)
-            if not self.camera.isOpened():
-                self.logger.warning("Failed to open camera, will retry on Raspberry Pi")
-            else:
-                self.logger.info("Camera initialized successfully")
-
-            # Test audio input
-            try:
-                with sr.Microphone(device_index=self.microphone_id) as source:
-                    self.recognizer.adjust_for_ambient_noise(source)
-                    self.logger.info("Microphone initialized successfully")
-            except Exception as e:
-                self.logger.warning(f"Microphone initialization warning (will retry on Raspberry Pi): {str(e)}")
-
-            # Configure text-to-speech
-            if self.speaker_id is not None:
+            # Initialize camera if cv2 is available
+            if cv2 is not None:
                 try:
-                    self.tts_engine.setProperty('voice', self.tts_engine.getProperty('voices')[0].id)
-                    self.tts_engine.say("System initialized")
-                    self.tts_engine.runAndWait()
-                    self.logger.info("Text-to-speech initialized successfully")
+                    self.camera = cv2.VideoCapture(self.camera_id)
+                    if not self.camera.isOpened():
+                        self.logger.warning("Failed to open camera, will retry on Raspberry Pi")
+                    else:
+                        self.logger.info("Camera initialized successfully")
                 except Exception as e:
-                    self.logger.warning(f"Text-to-speech warning (will retry on Raspberry Pi): {str(e)}")
+                    self.logger.warning(f"Camera initialization error: {str(e)}")
+            else:
+                self.logger.warning("OpenCV (cv2) not available - camera functions disabled")
 
-            self.logger.info("Device initialization completed - some devices may need to be configured on Raspberry Pi")
+            # Welcome message
+            self.speak_text("System initialized")
+            
+            self.logger.info("Device initialization completed")
             return True
 
         except Exception as e:
@@ -114,24 +111,70 @@ class DeviceManager:
         self.retry_delay = min(self.retry_delay * 2, self.max_retry_delay)
         return True
 
-    def capture_audio(self) -> str:
-        """Capture audio from microphone and convert to text"""
+    def check_audio_hardware(self) -> bool:
+        """Check if audio hardware is available"""
         try:
-            with sr.Microphone(device_index=self.microphone_id) as source:
-                self.logger.info("Listening...")
-                audio = self.recognizer.listen(source, timeout=5, phrase_time_limit=10)
-                self.logger.info("Processing speech...")
-                text = self.recognizer.recognize_google(audio)
-                self.logger.info(f"Recognized text: {text}")
+            # Check if any audio devices are available
+            result = subprocess.run("arecord -l", shell=True, capture_output=True)
+            if "no soundcards found" in result.stderr.decode():
+                return False
+            return True
+        except:
+            return False
 
-                # Reset retry parameters on success
-                self.retry_delay = 1
-                self.last_error_message = None
+    def capture_audio(self) -> str:
+        """Capture audio from microphone using arecord and convert to text"""
+        try:
+            self.logger.info("Listening...")
+            
+            # Check if we're running in a development environment without audio hardware
+            if not self.check_audio_hardware():
+                self.logger.warning("No audio hardware detected - using simulated input")
+                
+                # Simulate some input for testing
+                import time
+                import random
+                
+                # Simulate processing time
+                time.sleep(2)
+                
+                # Return simulated input based on the current time
+                simulated_phrases = [
+                    "Hello robot how are you today",
+                    "What time is it",
+                    "Tell me about the weather",
+                    "What can you do",
+                    "Tell me a joke"
+                ]
+                text = random.choice(simulated_phrases)
+                self.logger.info(f"Simulated text input: {text}")
                 return text
+            
+            # If hardware is available, use it
+            # Record audio using arecord command
+            self.logger.info(f"Recording from device: {self.microphone_device}")
+            subprocess.run(
+                f"arecord -D {self.microphone_device} -d {self.record_seconds} -f cd {self.temp_wav_file}",
+                shell=True,
+                check=True
+            )
+            
+            self.logger.info("Processing speech...")
+            
+            # Convert audio to text using SpeechRecognition
+            with sr.AudioFile(self.temp_wav_file) as source:
+                audio_data = self.recognizer.record(source)
+                text = self.recognizer.recognize_google(audio_data)
+                self.logger.info(f"Recognized text: {text}")
+                
+            # Reset retry parameters on success
+            self.retry_delay = 1
+            self.last_error_message = None
+            return text
 
-        except sr.WaitTimeoutError:
-            if self._should_retry("No speech detected"):
-                self.logger.warning("No speech detected")
+        except subprocess.CalledProcessError as e:
+            if self._should_retry(f"Error recording audio: {e}"):
+                self.logger.warning(f"Recording error: {e}")
             return ""
         except sr.UnknownValueError:
             if self._should_retry("Could not understand audio"):
@@ -147,36 +190,82 @@ class DeviceManager:
             return ""
 
     def speak_text(self, text: str):
-        """Convert text to speech and play through speakers"""
+        """Convert text to speech using espeak and aplay"""
         try:
             self.logger.info(f"Speaking: {text}")
-            self.tts_engine.say(text)
-            self.tts_engine.runAndWait()
+            
+            # Check if we're running in a development environment without audio hardware
+            if not self.check_audio_hardware():
+                self.logger.warning("No audio hardware detected - speech output simulated")
+                # In a real environment with hardware, the text would be spoken aloud
+                # Just log the output for development
+                print(f"🔊 ROBOT SAYS: \"{text}\"")
+                return
+            
+            # Create a temporary file for the text
+            text_file = os.path.join(tempfile.gettempdir(), "robot_speech.txt")
+            with open(text_file, "w") as f:
+                f.write(text)
+            
+            # Use espeak to convert text to speech and pipe to aplay
+            self.logger.info(f"Playing speech through device: {self.speaker_device}")
+            subprocess.run(
+                f"espeak -f {text_file} --stdout | aplay -D {self.speaker_device}",
+                shell=True,
+                check=True
+            )
+            
         except Exception as e:
             if self._should_retry(str(e)):
                 self.logger.error(f"Text-to-speech error: {str(e)}")
 
     def capture_image(self):
         """Capture image from camera"""
+        # Check if cv2 is available
+        if cv2 is None:
+            if self._should_retry("OpenCV not available"):
+                self.logger.error("Camera functionality unavailable - OpenCV not installed")
+            return None
+            
+        # Check if camera is initialized
         if self.camera is None or not self.camera.isOpened():
             if self._should_retry("Camera is not initialized"):
                 self.logger.error("Camera is not initialized")
             return None
 
-        ret, frame = self.camera.read()
-        if ret:
-            return frame
-        else:
-            if self._should_retry("Failed to capture image"):
-                self.logger.error("Failed to capture image")
+        try:
+            ret, frame = self.camera.read()
+            if ret:
+                return frame
+            else:
+                if self._should_retry("Failed to capture image"):
+                    self.logger.error("Failed to capture image")
+                return None
+        except Exception as e:
+            if self._should_retry(f"Camera error: {str(e)}"):
+                self.logger.error(f"Error capturing image: {str(e)}")
             return None
 
     def cleanup(self):
         """Clean up and release all devices"""
         try:
-            if self.camera is not None:
-                self.camera.release()
-            self.audio.terminate()
-            self.tts_engine.stop()
+            # Release the camera if cv2 is available
+            if cv2 is not None and self.camera is not None:
+                try:
+                    self.camera.release()
+                except Exception as e:
+                    self.logger.warning(f"Error releasing camera: {str(e)}")
+                
+            # Remove temporary files
+            if os.path.exists(self.temp_wav_file):
+                os.remove(self.temp_wav_file)
+                
+            # Stop any ongoing audio processes
+            try:
+                subprocess.run("pkill -f aplay", shell=True, stderr=subprocess.DEVNULL)
+                subprocess.run("pkill -f arecord", shell=True, stderr=subprocess.DEVNULL)
+            except Exception as e:
+                self.logger.warning(f"Error stopping audio processes: {str(e)}")
+                
         except Exception as e:
             self.logger.error(f"Cleanup error: {str(e)}")
