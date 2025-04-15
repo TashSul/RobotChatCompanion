@@ -1,3 +1,25 @@
+#!/usr/bin/env python3
+"""
+Robot Voice Interface
+
+This script provides a voice-controlled interface for robot interaction
+using speech recognition, ChatGPT, and ROS integration for Ainex humanoid robot.
+
+Usage:
+    python3 robot_voice_interface.py [--no-sim] [--stop] [--no-ros]
+
+Options:
+    --no-sim    Disable simulation mode (requires real hardware)
+    --stop      Stop all running instances of the application
+    --no-ros    Disable ROS integration (no physical movement)
+
+Example:
+    python3 robot_voice_interface.py
+    python3 robot_voice_interface.py --no-sim
+    python3 robot_voice_interface.py --stop
+    python3 robot_voice_interface.py --no-ros
+"""
+
 import time
 import signal
 import sys
@@ -5,14 +27,22 @@ import argparse
 from logger_config import setup_logger
 from device_manager import DeviceManager
 from ai_processor import AIProcessor
+from ros_controller import RosController
 
 class RobotVoiceInterface:
-    def __init__(self):
+    def __init__(self, ros_enabled=True):
         self.logger = setup_logger()
         self.device_manager = DeviceManager(self.logger)
         self.ai_processor = AIProcessor(self.logger)
         self.running = True
-
+        self.ros_enabled = ros_enabled
+        
+        # Initialize ROS controller if enabled
+        if self.ros_enabled:
+            self.ros_controller = RosController(self.logger)
+        else:
+            self.ros_controller = None
+        
         # Setup signal handler for graceful shutdown
         signal.signal(signal.SIGINT, self.signal_handler)
         signal.signal(signal.SIGTERM, self.signal_handler)
@@ -73,8 +103,31 @@ class RobotVoiceInterface:
                         # Also update the AI with this context
                         context_update = f"User asked to identify an object. I responded: {identification_result}"
                         self.ai_processor.process_input(context_update)
+                    
+                    # Check if this is a ROS movement/action command
+                    elif self.ros_enabled and self.ros_controller:
+                        # Try to execute the command with the ROS controller
+                        ros_response = self.ros_controller.execute_command(user_input)
+                        
+                        if ros_response:
+                            # This was a valid robot movement command
+                            self.logger.info(f"Executed robot command: {user_input}")
+                            self.device_manager.speak_text(ros_response)
+                            
+                            # Update AI with the action taken
+                            context_update = f"User asked the robot to perform an action. Command: {user_input}. Response: {ros_response}"
+                            self.ai_processor.process_input(context_update)
+                        else:
+                            # Not a movement command, process through AI
+                            ai_response = self.ai_processor.process_input(user_input)
+                            
+                            if ai_response:
+                                # Convert response to speech
+                                self.device_manager.speak_text(ai_response)
+                            else:
+                                self.device_manager.speak_text("I'm sorry, I couldn't process that request")
                     else:
-                        # Process through AI for normal conversation
+                        # Process through AI for normal conversation (no ROS or not a movement command)
                         ai_response = self.ai_processor.process_input(user_input)
 
                         if ai_response:
@@ -82,6 +135,10 @@ class RobotVoiceInterface:
                             self.device_manager.speak_text(ai_response)
                         else:
                             self.device_manager.speak_text("I'm sorry, I couldn't process that request")
+                    
+                # Check for ROS action timeouts if ROS is enabled
+                if self.ros_enabled and self.ros_controller:
+                    self.ros_controller.check_timeouts()
 
                 time.sleep(0.1)  # Small delay to prevent CPU overuse
 
@@ -95,7 +152,13 @@ class RobotVoiceInterface:
     def cleanup(self):
         """Clean up resources"""
         try:
+            # Clean up device manager resources
             self.device_manager.cleanup()
+            
+            # Clean up ROS controller resources if enabled
+            if self.ros_enabled and self.ros_controller:
+                self.ros_controller.cleanup()
+                
             self.logger.info("Cleanup completed")
         except Exception as e:
             self.logger.error(f"Error during cleanup: {str(e)}")
@@ -107,6 +170,8 @@ def main():
                         help='Disable simulation mode (for use on actual hardware)')
     parser.add_argument('--stop', action='store_true',
                         help='Stop the running voice interface')
+    parser.add_argument('--no-ros', action='store_true',
+                        help='Disable ROS integration (no physical movements)')
     args = parser.parse_args()
     
     # Handle stop command
@@ -122,14 +187,23 @@ def main():
             print(f"Error sending stop signal: {str(e)}")
             return
 
-    # Create and run the interface
-    robot_interface = RobotVoiceInterface()
+    # Create and run the interface with ROS flag
+    ros_enabled = not args.no_ros
+    robot_interface = RobotVoiceInterface(ros_enabled=ros_enabled)
+    
+    # Log ROS status
+    if args.no_ros:
+        print("ROS integration disabled - no physical movements will be performed")
     
     # Set simulation flag if requested
     if args.no_sim:
         # Pass flag to device manager to disable simulation
         robot_interface.device_manager.simulation_enabled = False
         print("Simulation mode disabled - running in hardware mode only")
+        
+        # Also pass to ROS controller if enabled
+        if ros_enabled and robot_interface.ros_controller:
+            robot_interface.ros_controller.simulation_enabled = False
     
     try:
         robot_interface.run()

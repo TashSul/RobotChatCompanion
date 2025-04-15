@@ -201,15 +201,28 @@ class DeviceManager:
                 
                 # Return simulated input based on the current time
                 simulated_phrases = [
+                    # Standard conversation phrases
                     "Hello robot how are you today",
                     "What time is it",
                     "Tell me about the weather",
                     "What can you do",
                     "Tell me a joke",
+                    
+                    # Camera/object recognition phrases
                     "What do you see in front of you",
                     "Can you identify this object",
                     "What am I holding",
-                    "Look at this and tell me what it is"
+                    "Look at this and tell me what it is",
+                    
+                    # Robot movement commands (for ROS testing)
+                    "Wave",
+                    "Wave your hand",
+                    "Move 3 steps forward",
+                    "Move 2 steps backward",
+                    "Stop moving",
+                    "Track the object",
+                    "Kick the ball",
+                    "Stop"
                 ]
                 text = random.choice(simulated_phrases)
                 self.logger.info(f"Simulated text input: {text}")
