@@ -196,24 +196,53 @@ When running in environments without hardware (like development machines), the s
 
 ## Git Repository Management
 
-When deploying to Git, make sure to:
+### Setting Up GitHub Repository
 
-1. Set up a `.gitignore` file to exclude logs and sensitive files:
-   ```
-   # .gitignore
-   robot_logs_*.log
-   .env
-   __pycache__/
-   *.py[cod]
-   *$py.class
-   ```
+1. Create a new GitHub repository at https://github.com/new
+2. Connect your local repository to GitHub:
 
-2. Use environment variables for the API key instead of hardcoding it
-3. Ensure all Python requirements are documented in `requirements.txt`
-
-To create a requirements file:
 ```bash
-pip freeze > requirements.txt
+# Add the GitHub repository as remote
+git remote add origin https://github.com/your-username/robot-voice-interface.git
+
+# Push your code to GitHub
+git push -u origin main
+```
+
+### Important Git Practices
+
+When managing this project with Git, make sure to:
+
+1. Keep sensitive information out of the repository:
+   - Never commit API keys or credentials
+   - Use environment variables on the deployment system
+   - The `.gitignore` file is already set up to exclude logs and sensitive files
+
+2. Document dependencies:
+   - All Python package requirements are listed in `requirements.txt`
+   - System dependencies are documented in this README
+
+3. When making changes:
+   - Test thoroughly before committing
+   - Use descriptive commit messages
+   - Consider creating feature branches for major changes
+
+### Updating the Repository
+
+```bash
+# Get latest changes
+git pull origin main
+
+# Make your changes to the files
+
+# Add changed files
+git add .
+
+# Commit with a descriptive message
+git commit -m "Description of your changes"
+
+# Push to GitHub
+git push origin main
 ```
 
 ## License
