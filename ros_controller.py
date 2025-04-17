@@ -142,7 +142,21 @@ class RosController:
         # Handle object tracking
         if "track" in command and ("object" in command or "target" in command):
             return self.track_object()
-        
+            
+        # Handle object picking/grabbing
+        if any(word in command for word in ["pick", "grab", "take", "get"]) and "object" in command:
+            return self.pick_up_object()
+            
+        # Handle grip calibration
+        if any(phrase in command.lower() for phrase in [
+            "calibrate grip", 
+            "calibrate hand", 
+            "adjust grip sensitivity", 
+            "haptic feedback calibration",
+            "calibrate haptic feedback"
+        ]):
+            return self.calibrate_grip_sensitivity()
+            
         # If no specific command matched, return None to indicate
         # this should be handled by conversation AI instead
         return None
@@ -175,6 +189,40 @@ class RosController:
         
         return "I've stopped all movements."
         
+    def calibrate_grip_sensitivity(self) -> str:
+        """Run the haptic feedback grip sensitivity calibration
+        
+        This calibrates the robot's gripper pressure sensors using haptic feedback,
+        allowing it to pick up objects of varying fragility without damaging them.
+        
+        Returns:
+            str: Response message
+        """
+        if not self.ros_initialized and not self.simulation_enabled:
+            return "I can't calibrate the grip because I'm not connected to the robot's sensor system."
+            
+        self.logger.info("Starting grip sensitivity calibration")
+        
+        if self.ros_initialized:
+            # Send the calibration command
+            action_msg = String()
+            action_msg.data = "calibrate_grip_sensitivity"
+            self.action_pub.publish(action_msg)
+            
+            # Set action state to track timeout
+            self.current_action = "calibrating_grip"
+            self.action_start_time = time.time()
+            self.action_timeout = 60.0  # Calibration can take up to a minute
+            
+            # In a real implementation this would:
+            # 1. Open and close gripper with increasing pressure until resistance detected
+            # 2. Measure feedback from pressure sensors in fingertips
+            # 3. Establish baseline sensitivity for different materials (soft, medium, hard)
+            # 4. Store calibration settings in robot's configuration
+            # 5. Test calibration with sample objects
+        
+        return "Starting grip sensitivity calibration. I'll open and close my hand while measuring pressure feedback. This helps me handle objects gently without dropping or crushing them."
+            
     def handle_movement_command(self, command: str) -> str:
         """Process and execute movement commands
         
@@ -320,6 +368,57 @@ class RosController:
             self.is_tracking = True
         
         return "I'm now tracking objects in front of me. Say 'stop tracking' when you want me to stop."
+        
+    def pick_up_object(self) -> str:
+        """Pick up an object using the robot's vision and gripper
+        
+        This method implements a complete object picking sequence:
+        1. Use camera to locate object with depth perception
+        2. Position the robot appropriately
+        3. Bend down and reach for the object
+        4. Use the gripper to grab the object
+        5. Stand up with the object securely held
+        
+        Returns:
+            str: Response message
+        """
+        if not self.ros_initialized and not self.simulation_enabled:
+            return "I can't pick up objects because I'm not connected to the robot's vision and gripper systems."
+            
+        self.logger.info("Starting object pick-up sequence")
+        
+        if self.ros_initialized:
+            # 1. Object Detection with Depth Perception
+            # In a real implementation, this would use:
+            # - RGB-D camera (like Intel RealSense)
+            # - Object detection model (like YOLO or MobileNet)
+            # - Point cloud processing for depth estimation
+            
+            # Send the object detection and pick-up command to ROS
+            action_msg = String()
+            action_msg.data = "pick_up_object"
+            self.action_pub.publish(action_msg)
+            
+            # Set action state
+            self.current_action = "picking_up_object"
+            self.action_start_time = time.time()
+            self.action_timeout = 20.0  # Object pick-up can take longer than other actions
+            
+            # Note: In a real implementation, we would:
+            # 1. Subscribe to feedback topics to track the picking progress
+            # 2. Handle failure cases (object not found, grip failed, etc.)
+            # 3. Update the robot's hand state once gripping is successful
+            
+            # The complete pick-up sequence handled by the robot's firmware/ROS stack would be:
+            # - Object localization with bounding box
+            # - Depth estimation to determine distance and position
+            # - Path planning to approach the object
+            # - Posture adjustment (bending) to reach the object
+            # - Gripper approach and grip force control
+            # - Grasp stability verification
+            # - Standing up with the object while maintaining grip
+        
+        return "I'm looking for the object and will pick it up. I'll bend down, grab it securely, and stand up with it."
     
     def check_timeouts(self):
         """Check if current action has timed out and stop if needed"""

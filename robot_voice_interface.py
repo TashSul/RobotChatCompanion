@@ -37,6 +37,13 @@ class RobotVoiceInterface:
         self.running = True
         self.ros_enabled = ros_enabled
         
+        # Wake word configuration
+        self.wake_word = "beta"
+        self.wake_word_enabled = True
+        self.wake_word_active = False
+        self.wake_word_timeout = 30  # seconds
+        self.last_wake_time = 0
+        
         # Initialize ROS controller if enabled
         if self.ros_enabled:
             self.ros_controller = RosController(self.logger)
@@ -78,6 +85,41 @@ class RobotVoiceInterface:
                 user_input = self.device_manager.capture_audio()
 
                 if user_input:
+                    # Check for wake word if enabled
+                    if self.wake_word_enabled:
+                        user_input_lower = user_input.lower()
+                        
+                        # Check if this is just the wake word by itself
+                        if user_input_lower == self.wake_word:
+                            self.wake_word_active = True
+                            self.last_wake_time = time.time()
+                            self.logger.info(f"Wake word '{self.wake_word}' detected")
+                            self.device_manager.speak_text(f"Yes, I'm listening.")
+                            continue
+                        
+                        # If wake word at beginning of command, process without requiring separate activation
+                        if user_input_lower.startswith(f"{self.wake_word} "):
+                            self.wake_word_active = True
+                            self.last_wake_time = time.time()
+                            # Remove wake word from the beginning of the command
+                            user_input = user_input[len(self.wake_word):].strip()
+                            self.logger.info(f"Wake word with command detected: {user_input}")
+                        
+                        # If wake word isn't active and not in the input, ignore the command
+                        elif not self.wake_word_active:
+                            self.logger.info(f"Ignoring command - wake word not active: {user_input}")
+                            continue
+                        
+                        # Check for timeout on wake word
+                        elif self.wake_word_active and (time.time() - self.last_wake_time > self.wake_word_timeout):
+                            self.wake_word_active = False
+                            self.logger.info("Wake word timed out")
+                            self.device_manager.speak_text("I'm going back to sleep. Say Beta to wake me up.")
+                            continue
+                        else:
+                            # Update the last wake time since we're processing a command
+                            self.last_wake_time = time.time()
+                    
                     # Check if this is an object identification request
                     if any(phrase in user_input.lower() for phrase in [
                         "what do you see", 
@@ -97,12 +139,81 @@ class RobotVoiceInterface:
                         # Use the camera to identify objects
                         identification_result = self.device_manager.identify_object()
                         
-                        # Respond with the identification result
-                        self.device_manager.speak_text(identification_result)
+                        # Check if this is a trained object
+                        trained_object = self.ai_processor.is_trained_object(identification_result)
+                        if trained_object:
+                            response = f"I recognize this as your trained object: {trained_object}"
+                            self.device_manager.speak_text(response)
+                        else:
+                            # Respond with the standard identification result
+                            self.device_manager.speak_text(identification_result)
                         
                         # Also update the AI with this context
-                        context_update = f"User asked to identify an object. I responded: {identification_result}"
+                        if trained_object:
+                            context_update = f"User asked to identify an object. I recognized it as the trained object '{trained_object}'"
+                        else:
+                            context_update = f"User asked to identify an object. I responded: {identification_result}"
                         self.ai_processor.process_input(context_update)
+                    
+                    # Check for wake word control commands
+                    elif user_input.lower() in ["wake word on", "enable wake word"]:
+                        self.wake_word_enabled = True
+                        self.logger.info("Wake word requirement enabled")
+                        self.device_manager.speak_text(f"Wake word '{self.wake_word}' is now required. Say '{self.wake_word}' to activate me.")
+                        continue
+                    elif user_input.lower() in ["wake word off", "disable wake word"]:
+                        self.wake_word_enabled = False
+                        self.wake_word_active = True  # Always active when disabled
+                        self.logger.info("Wake word requirement disabled")
+                        self.device_manager.speak_text("Wake word is now disabled. I'll listen to all commands.")
+                        continue
+                        
+                    # Handle object training mode commands
+                    elif "train" in user_input.lower() and "object" in user_input.lower():
+                        # Extract the object name (everything after "train object")
+                        import re
+                        match = re.search(r'train\s+object\s+([a-zA-Z0-9_\s]+)', user_input.lower())
+                        if match:
+                            object_name = match.group(1).strip()
+                            response = self.ai_processor.start_object_training_mode(object_name)
+                            self.device_manager.speak_text(response)
+                            continue
+                        else:
+                            self.device_manager.speak_text("Please specify an object name, like 'train object coffee mug'.")
+                            continue
+                            
+                    elif self.ai_processor.training_mode_active and "finish" in user_input.lower() and "training" in user_input.lower():
+                        response = self.ai_processor.finish_training()
+                        self.device_manager.speak_text(response)
+                        continue
+                        
+                    elif self.ai_processor.training_mode_active and "cancel" in user_input.lower() and "training" in user_input.lower():
+                        response = self.ai_processor.cancel_training()
+                        self.device_manager.speak_text(response)
+                        continue
+                        
+                    # If in training mode and this is an object identification request, use it as a training sample
+                    elif self.ai_processor.training_mode_active and any(phrase in user_input.lower() for phrase in [
+                        "what do you see", 
+                        "what is this", 
+                        "identify this", 
+                        "what object", 
+                        "recognize this",
+                        "look at this",
+                        "what's in front of you",
+                        "can you see",
+                        "what am i holding",
+                        "another angle",
+                        "different angle",
+                        "more angles"
+                    ]):
+                        self.device_manager.speak_text("Looking at this training sample...")
+                        # Capture the object identification result
+                        identification_result = self.device_manager.identify_object()
+                        # Add it as a training sample
+                        training_response = self.ai_processor.add_training_sample(identification_result)
+                        self.device_manager.speak_text(training_response)
+                        continue
                     
                     # Check if this is a ROS movement/action command
                     elif self.ros_enabled and self.ros_controller:

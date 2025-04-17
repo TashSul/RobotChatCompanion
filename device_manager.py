@@ -24,6 +24,9 @@ class DeviceManager:
         
         # Simulation mode flag - default is enabled for development environments
         self.simulation_enabled = True
+        
+        # For tracking simulation state
+        self.last_simulated_text = ""
 
         # Audio recording parameters
         self.record_seconds = 5
@@ -192,6 +195,22 @@ class DeviceManager:
             if not self.check_audio_hardware() and self.simulation_enabled:
                 self.logger.warning("No audio hardware detected - using simulated input")
                 
+                # Check if we have a simulated input file from the test script
+                temp_sim_file = os.path.join(tempfile.gettempdir(), "robot_sim_input.txt")
+                if os.path.exists(temp_sim_file):
+                    try:
+                        with open(temp_sim_file, "r") as f:
+                            text = f.read().strip()
+                        # Remove the file after reading
+                        os.remove(temp_sim_file)
+                        self.logger.info(f"Using simulated input from file: {text}")
+                        # Save the last simulated text for training simulation purposes
+                        self.last_simulated_text = text
+                        return text
+                    except Exception as e:
+                        self.logger.warning(f"Error reading simulated input file: {e}")
+                        # Fall back to random simulation
+                
                 # Simulate some input for testing
                 import time
                 import random
@@ -222,10 +241,50 @@ class DeviceManager:
                     "Stop moving",
                     "Track the object",
                     "Kick the ball",
-                    "Stop"
+                    "Stop",
+                    
+                    # Object picking commands (for ROS testing)
+                    "Pick up that object",
+                    "Grab the object in front of you",
+                    "Can you pick up this object",
+                    "Take that object",
+                    "Get that object for me",
+                    
+                    # Wake word related commands
+                    "Beta",
+                    "Beta wave your hand",
+                    "Beta pick up that object",
+                    "Beta what do you see",
+                    "Beta disable wake word",
+                    "Wake word on",
+                    "Wake word off",
+                    "Enable wake word",
+                    "Disable wake word",
+                    
+                    # Haptic feedback calibration commands
+                    "Beta calibrate grip",
+                    "Beta calibrate hand",
+                    "Beta adjust grip sensitivity",
+                    "Beta haptic feedback calibration",
+                    "Calibrate haptic feedback",
+                    
+                    # Object training commands
+                    "Train object coffee mug",
+                    "Train object rubber duck",
+                    "Train object keyboard",
+                    "Train object remote control",
+                    "What do you see",
+                    "What is this",
+                    "Another angle",
+                    "Different angle",
+                    "More angles",
+                    "Finished training",
+                    "Cancel training"
                 ]
                 text = random.choice(simulated_phrases)
                 self.logger.info(f"Simulated text input: {text}")
+                # Save the last simulated text for training simulation purposes
+                self.last_simulated_text = text
                 return text
             
             # If simulation is disabled but no hardware is available, return empty to wait for hardware
@@ -347,7 +406,43 @@ class DeviceManager:
         if frame is None and self.simulation_enabled:
             self.logger.warning("No camera or frame detected - using simulated image recognition")
             
-            # Provide a simulated response for testing
+            # In training mode, try to match the simulated response to the object being trained
+            # We'll infer the training state from the current simulated command
+            try:
+                # Look for a commonly used training object pattern in recent simulated text
+                # This is a hack for simulation purposes - in a real system, we'd have proper state management
+                import re
+                training_object = None
+                
+                # Check if we recently simulated a Train object command
+                if "train object" in self.last_simulated_text.lower():
+                    match = re.search(r'train\s+object\s+([a-zA-Z0-9_\s]+)', self.last_simulated_text.lower())
+                    if match:
+                        training_object = match.group(1).strip()
+                        self.logger.info(f"Detected training mode for object: {training_object} from simulated input")
+                        self.logger.info(f"Simulating recognition for training object: {training_object}")
+                        
+                        # Create custom responses for the specific object being trained
+                        result = ""
+                        if training_object and ("coffee" in training_object or "mug" in training_object):
+                            result = "I can see a ceramic coffee mug with a handle. It appears to be on a flat surface."
+                        elif training_object and ("duck" in training_object or "rubber" in training_object):
+                            result = "There's a small yellow rubber duck toy. It has an orange beak and appears to be made of plastic."
+                        elif training_object and ("remote" in training_object or "control" in training_object):
+                            result = "I can see what appears to be a black remote control with multiple buttons. It's likely for a TV or entertainment system."
+                        elif training_object and "keyboard" in training_object:
+                            result = "There's a computer keyboard with black keys. It appears to be a standard QWERTY layout."
+                        else:
+                            result = f"I can see what looks like a {training_object} in the image."
+                        
+                        self.logger.info(f"Simulated training image recognition: {result}")
+                        return result
+            except:
+                # If there's any error in the above, fall back to standard responses
+                self.logger.warning("Error in custom training response, using standard simulation")
+                pass
+            
+            # Standard simulated responses
             simulated_responses = [
                 "I can see what appears to be a coffee mug on a desk.",
                 "There seems to be a smartphone in the image.",
