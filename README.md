@@ -140,6 +140,24 @@ This feature works best with good lighting and the object clearly visible to the
 
 We provide several testing scripts to verify your hardware setup:
 
+### Voice Input and OpenAI Test
+
+This simple test focuses only on the voice and OpenAI components:
+
+```bash
+python3 test_voice_openai.py
+```
+
+You can also test with simulated voice input:
+
+```bash
+# Create a simulated voice input
+echo "Tell me a joke" > /tmp/test_sim_input.txt
+
+# Run the test
+python3 test_voice_openai.py
+```
+
 ### Basic Command Test
 
 ```bash
