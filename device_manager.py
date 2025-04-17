@@ -185,8 +185,19 @@ class DeviceManager:
         except:
             return False
 
+    def cleanup_audio_processes(self):
+        """Kill any existing arecord processes that might be using the microphone"""
+        try:
+            self.logger.info("Cleaning up existing audio processes")
+            subprocess.run("killall arecord 2>/dev/null", shell=True)
+            # Wait a moment for the device to be released
+            time.sleep(0.5)
+        except Exception as e:
+            self.logger.warning(f"Error cleaning up audio processes: {e}")
+            
     def capture_audio(self) -> str:
         """Capture audio from microphone using arecord and convert to text"""
+        lock_file = "/tmp/robot_microphone.lock"
         try:
             self.logger.info("Listening...")
             
@@ -292,11 +303,34 @@ class DeviceManager:
                 self.logger.error("Audio hardware required but not available - simulation disabled")
                 return ""
             
+            # Check if lock file exists
+            if os.path.exists(lock_file):
+                try:
+                    # Check if it's stale (older than 30 seconds)
+                    if time.time() - os.path.getmtime(lock_file) > 30:
+                        os.remove(lock_file)
+                        self.logger.warning("Removed stale microphone lock file")
+                    else:
+                        self.logger.warning("Microphone appears to be in use - trying to kill existing processes")
+                        self.cleanup_audio_processes()
+                except Exception as e:
+                    self.logger.warning(f"Error checking lock file: {e}")
+            
+            # Create lock file
+            try:
+                with open(lock_file, 'w') as f:
+                    f.write(str(os.getpid()))
+            except Exception as e:
+                self.logger.warning(f"Error creating lock file: {e}")
+                
+            # Clean up any existing audio processes
+            self.cleanup_audio_processes()
+            
             # If hardware is available, use it
-            # Record audio using arecord command
+            # Record audio using arecord command with a modified format
             self.logger.info(f"Recording from device: {self.microphone_device}")
             subprocess.run(
-                f"arecord -D {self.microphone_device} -d {self.record_seconds} -f cd {self.temp_wav_file}",
+                f"arecord -D {self.microphone_device} -d {self.record_seconds} -f S16_LE -r 44100 -c 1 {self.temp_wav_file}",
                 shell=True,
                 check=True
             )
@@ -312,23 +346,55 @@ class DeviceManager:
             # Reset retry parameters on success
             self.retry_delay = 1
             self.last_error_message = None
+            
+            # Remove the lock file
+            if os.path.exists(lock_file):
+                try:
+                    os.remove(lock_file)
+                except Exception as e:
+                    self.logger.warning(f"Error removing lock file: {e}")
+                    
             return text
 
         except subprocess.CalledProcessError as e:
             if self._should_retry(f"Error recording audio: {e}"):
                 self.logger.warning(f"Recording error: {e}")
+            # Remove the lock file if there was an error
+            if os.path.exists(lock_file):
+                try:
+                    os.remove(lock_file)
+                except:
+                    pass
             return ""
         except sr.UnknownValueError:
             if self._should_retry("Could not understand audio"):
                 self.logger.warning("Could not understand audio")
+            # Remove the lock file if there was an error
+            if os.path.exists(lock_file):
+                try:
+                    os.remove(lock_file)
+                except:
+                    pass
             return ""
         except sr.RequestError as e:
             if self._should_retry(str(e)):
                 self.logger.error(f"Speech recognition error: {str(e)}")
+            # Remove the lock file if there was an error
+            if os.path.exists(lock_file):
+                try:
+                    os.remove(lock_file)
+                except:
+                    pass
             return ""
         except Exception as e:
             if self._should_retry(str(e)):
                 self.logger.error(f"Unexpected audio capture error: {str(e)}")
+            # Remove the lock file if there was an error
+            if os.path.exists(lock_file):
+                try:
+                    os.remove(lock_file)
+                except:
+                    pass
             return ""
 
     def speak_text(self, text: str):
