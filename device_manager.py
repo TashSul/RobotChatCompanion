@@ -2,7 +2,6 @@ import subprocess
 import os
 import tempfile
 import wave
-import speech_recognition as sr
 import logging
 import time
 import base64
@@ -20,7 +19,6 @@ class DeviceManager:
     def __init__(self, logger: logging.Logger):
         self.logger = logger
         self.camera = None  # Will hold the camera object if available
-        self.recognizer = sr.Recognizer()
         
         # Simulation mode flag - default is enabled for development environments
         self.simulation_enabled = True
@@ -335,42 +333,31 @@ class DeviceManager:
                 check=True
             )
             
-            self.logger.info("Processing speech...")
+            self.logger.info("Processing speech with OpenAI Whisper...")
             
-            # Convert audio to text using SpeechRecognition
+            # Process audio with OpenAI Whisper API
             try:
-                with sr.AudioFile(self.temp_wav_file) as source:
-                    audio_data = self.recognizer.record(source)
-                    text = self.recognizer.recognize_google(audio_data)
-                    self.logger.info(f"Recognized text: {text}")
+                # Check for API key
+                api_key = os.getenv("OPENAI_API_KEY")
+                if not api_key:
+                    self.logger.error("OPENAI_API_KEY not set. Cannot use Whisper API.")
+                    raise Exception("OpenAI API key not available")
+                
+                # Initialize OpenAI client
+                client = openai.OpenAI(api_key=api_key)
+                
+                # Transcribe the audio file
+                with open(self.temp_wav_file, "rb") as audio_file:
+                    transcription = client.audio.transcriptions.create(
+                        model="whisper-1", 
+                        file=audio_file
+                    )
+                
+                text = transcription.text
+                self.logger.info(f"OpenAI Whisper recognized text: {text}")
             except Exception as e:
-                if "FLAC conversion utility not available" in str(e):
-                    self.logger.error(f"FLAC conversion error: {e}")
-                    self.logger.info("Attempting to use OpenAI Whisper API as fallback...")
-                    
-                    # Try to use OpenAI Whisper API as fallback if API key is available
-                    try:
-                        api_key = os.getenv("OPENAI_API_KEY")
-                        if api_key:
-                            import openai
-                            client = openai.OpenAI(api_key=api_key)
-                            
-                            with open(self.temp_wav_file, "rb") as audio_file:
-                                transcription = client.audio.transcriptions.create(
-                                    model="whisper-1", 
-                                    file=audio_file
-                                )
-                            
-                            text = transcription.text
-                            self.logger.info(f"OpenAI Whisper recognized text: {text}")
-                        else:
-                            self.logger.error("OPENAI_API_KEY not set. Cannot use Whisper API.")
-                            raise
-                    except Exception as whisper_error:
-                        self.logger.error(f"OpenAI Whisper fallback error: {whisper_error}")
-                        raise
-                else:
-                    raise
+                self.logger.error(f"OpenAI Whisper transcription error: {e}")
+                raise
                 
             # Reset retry parameters on success
             self.retry_delay = 1
@@ -395,29 +382,10 @@ class DeviceManager:
                 except:
                     pass
             return ""
-        except sr.UnknownValueError:
-            if self._should_retry("Could not understand audio"):
-                self.logger.warning("Could not understand audio")
-            # Remove the lock file if there was an error
-            if os.path.exists(lock_file):
-                try:
-                    os.remove(lock_file)
-                except:
-                    pass
-            return ""
-        except sr.RequestError as e:
-            if self._should_retry(str(e)):
-                self.logger.error(f"Speech recognition error: {str(e)}")
-            # Remove the lock file if there was an error
-            if os.path.exists(lock_file):
-                try:
-                    os.remove(lock_file)
-                except:
-                    pass
-            return ""
         except Exception as e:
-            if self._should_retry(str(e)):
-                self.logger.error(f"Unexpected audio capture error: {str(e)}")
+            error_msg = str(e)
+            if self._should_retry(error_msg):
+                self.logger.error(f"Speech recognition error: {error_msg}")
             # Remove the lock file if there was an error
             if os.path.exists(lock_file):
                 try:

@@ -161,23 +161,29 @@ def check_openai_api_key():
         print("✅ OPENAI_API_KEY is set")
         return True
 
-def check_speech_recognition():
-    """Check SpeechRecognition library and its functionality"""
-    print_section("Checking SpeechRecognition Library")
+def check_openai_whisper_setup():
+    """Check OpenAI packages for Whisper API usage"""
+    print_section("Checking OpenAI Setup for Whisper")
     
     try:
-        import speech_recognition as sr
-        print(f"✅ SpeechRecognition library (version {sr.__version__}) is installed")
+        import openai
+        print(f"✅ OpenAI Python library is installed")
         
-        # Create a recognizer and check available recognition engines
-        recognizer = sr.Recognizer()
-        print("\nAvailable recognition methods:")
-        for method in dir(recognizer):
-            if method.startswith("recognize_"):
-                print(f"  - {method}")
+        # Check if API key is available
+        api_key = os.environ.get("OPENAI_API_KEY")
+        if api_key:
+            print("✅ OPENAI_API_KEY environment variable is set")
+            # Create client to verify we can initialize properly
+            client = openai.OpenAI(api_key=api_key)
+            print("✅ OpenAI client initialized successfully")
+        else:
+            print("❌ OPENAI_API_KEY environment variable is not set")
+            print("   Set it with: export OPENAI_API_KEY=your-api-key")
+            return False
         
     except ImportError:
-        print("❌ SpeechRecognition library is not installed or not available")
+        print("❌ OpenAI Python library is not installed or not available")
+        print("   Install it with: pip install openai")
         return False
     
     return True
@@ -261,46 +267,47 @@ def fix_device_manager():
     replace_with = """            # If hardware is available, use it
             # Record audio using arecord command with a modified format
             
-            # If simulation is disabled, prioritize OpenAI Whisper API for reliability
-            # This ensures more consistent hardware performance
-            if not self.simulation_enabled:
-                self.logger.info(f"Hardware mode (--no-sim): Recording from device: {self.microphone_device}")
-                try:
-                    # Record the audio
-                    subprocess.run(
-                        f"arecord -D {self.microphone_device} -d {self.record_seconds} -f S16_LE -r 44100 -c 1 {self.temp_wav_file}",
-                        shell=True,
-                        check=True
-                    )
+            # Always use OpenAI Whisper API for speech recognition
+            # This ensures consistent performance in both hardware and simulation mode
+            self.logger.info(f"Recording from device: {self.microphone_device}")
+            try:
+                # Record the audio
+                subprocess.run(
+                    f"arecord -D {self.microphone_device} -d {self.record_seconds} -f S16_LE -r 44100 -c 1 {self.temp_wav_file}",
+                    shell=True,
+                    check=True
+                )
+                
+                # Use OpenAI Whisper API for speech recognition
+                api_key = os.getenv("OPENAI_API_KEY")
+                if api_key:
+                    import openai
+                    client = openai.OpenAI(api_key=api_key)
                     
-                    # Go directly to OpenAI Whisper API for more reliable recognition
-                    api_key = os.getenv("OPENAI_API_KEY")
-                    if api_key:
-                        import openai
-                        client = openai.OpenAI(api_key=api_key)
-                        
-                        with open(self.temp_wav_file, "rb") as audio_file:
-                            transcription = client.audio.transcriptions.create(
-                                model="whisper-1", 
-                                file=audio_file
-                            )
-                        
-                        text = transcription.text
-                        self.logger.info(f"OpenAI Whisper recognized text: {text}")
-                        
-                        # Remove the lock file and return the text
-                        if os.path.exists(lock_file):
-                            try:
-                                os.remove(lock_file)
-                            except Exception as e:
-                                self.logger.warning(f"Error removing lock file: {e}")
-                        
-                        return text
-                    else:
-                        self.logger.warning("OPENAI_API_KEY not set for Whisper API. Falling back to Google recognition.")
-                except Exception as e:
-                    self.logger.error(f"Error in hardware mode audio capture: {e}")
-                    # Continue to the standard recognition flow as a fallback
+                    with open(self.temp_wav_file, "rb") as audio_file:
+                        transcription = client.audio.transcriptions.create(
+                            model="whisper-1", 
+                            file=audio_file
+                        )
+                    
+                    text = transcription.text
+                    self.logger.info(f"OpenAI Whisper recognized text: {text}")
+                    
+                    # Remove the lock file and return the text
+                    if os.path.exists(lock_file):
+                        try:
+                            os.remove(lock_file)
+                        except Exception as e:
+                            self.logger.warning(f"Error removing lock file: {e}")
+                    
+                    return text
+                else:
+                    self.logger.error("OPENAI_API_KEY not set. Cannot use Whisper API.")
+                    self.logger.error("Set the OPENAI_API_KEY environment variable for speech recognition.")
+                    raise Exception("OpenAI API key not available")
+            except Exception as e:
+                self.logger.error(f"Error in audio capture: {e}")
+                raise
             
             # Standard processing flow (used in simulation mode or as fallback)
 """
@@ -332,9 +339,9 @@ def print_summary():
     print("   sudo apt-get install -y flac")
     print()
     
-    print("4. Use the fixed device_manager.py when running with --no-sim:")
-    print("   - The fix prioritizes OpenAI Whisper API for hardware mode")
-    print("   - This offers more reliable speech recognition on hardware")
+    print("4. Use the fixed device_manager.py for more reliable speech recognition:")
+    print("   - The fix uses OpenAI Whisper API exclusively for all speech recognition")
+    print("   - This offers more reliable and consistent speech recognition")
     print()
     
     print("5. To run the application in hardware mode:")
@@ -359,7 +366,7 @@ def main():
     test_audio_input()
     check_flac_installation()
     check_openai_api_key()
-    check_speech_recognition()
+    check_openai_whisper_setup()
     test_recording_with_whisper()
     
     # Apply fix
@@ -368,8 +375,10 @@ def main():
     # Print summary
     print_summary()
     
-    print("\nFix complete! Try running the interface with hardware mode:")
-    print("  python3 robot_voice_interface.py --no-sim")
+    print("\nFix complete! The interface now exclusively uses OpenAI Whisper API for speech recognition.")
+    print("Try running the interface in standard or hardware mode:")
+    print("  python3 robot_voice_interface.py            # Standard mode")
+    print("  python3 robot_voice_interface.py --no-sim   # Hardware mode")
 
 if __name__ == "__main__":
     main()
