@@ -16,6 +16,8 @@ sudo apt install -y alsa-utils pulseaudio
 sudo apt install -y flac # Required for SpeechRecognition FLAC conversion
 sudo apt install -y portaudio19-dev python3-pyaudio
 sudo apt install -y espeak
+sudo apt install -y ffmpeg # For playing OpenAI TTS audio
+sudo apt install -y mplayer # Alternative audio player
 
 echo ""
 echo "Installing video utilities and libraries..."

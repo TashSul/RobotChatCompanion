@@ -15,8 +15,10 @@ This project creates a voice-based conversational interface for a Hiwonder Ainex
 ## Key Features
 
 - Seamless voice interaction with ChatGPT API integration
+- Natural voice output using OpenAI TTS API with multiple voice options
 - Object recognition and visual perception powered by OpenAI Vision
 - Trigger phrases for activating camera-based object identification
+- Voice commands for changing voice type and speech speed
 - Hardware-optimized audio capture and playback
 - Automatic USB device detection and configuration
 - Error-resilient operation with exponential backoff
@@ -38,8 +40,12 @@ This project creates a voice-based conversational interface for a Hiwonder Ainex
 - OpenAI API key
 - Required system packages:
   - ALSA utilities
-  - espeak (text-to-speech)
+  - espeak (text-to-speech fallback)
   - OpenCV libraries
+  - ffmpeg (for OpenAI TTS audio playback)
+  - mplayer (alternative audio player)
+  - FLAC (for audio conversion)
+  - PyAudio (for microphone input)
 
 ## Installation
 
@@ -60,6 +66,8 @@ sudo apt update
 sudo apt install -y python3-pip python3-opencv
 sudo apt install -y portaudio19-dev python3-pyaudio
 sudo apt install -y espeak
+sudo apt install -y ffmpeg mplayer
+sudo apt install -y flac
 
 # Install ALSA utilities for audio device management
 sudo apt install -y alsa-utils
@@ -135,6 +143,29 @@ The robot can identify objects through its camera. To activate this feature:
 4. The robot will then verbally describe what it sees
 
 This feature works best with good lighting and the object clearly visible to the camera.
+
+### Voice Control Features
+
+The robot now uses OpenAI's Text-to-Speech API to produce natural-sounding voices. You can control the voice using these commands:
+
+#### Voice Selection
+- **List available voices**: Say "list voices" or "show voices" to see all available options
+- **Change voice**: Say "use voice [name]" or "change voice to [name]" to switch voices
+  
+Available voices include:
+- **Nova**: Natural female voice (default)
+- **Alloy**: Neutral voice
+- **Echo**: Male voice
+- **Fable**: Expressive male voice
+- **Onyx**: Deep male voice
+- **Shimmer**: Energetic female voice
+
+#### Voice Speed Control
+- **Speed up**: Say "speak faster" to increase speaking speed
+- **Slow down**: Say "speak slower" to decrease speaking speed
+- **Reset speed**: Say "reset voice speed" to return to normal speed
+
+The system automatically falls back to espeak for text-to-speech if the OpenAI API is unavailable, ensuring the robot can always communicate.
 
 ## Testing Tools
 
