@@ -338,10 +338,39 @@ class DeviceManager:
             self.logger.info("Processing speech...")
             
             # Convert audio to text using SpeechRecognition
-            with sr.AudioFile(self.temp_wav_file) as source:
-                audio_data = self.recognizer.record(source)
-                text = self.recognizer.recognize_google(audio_data)
-                self.logger.info(f"Recognized text: {text}")
+            try:
+                with sr.AudioFile(self.temp_wav_file) as source:
+                    audio_data = self.recognizer.record(source)
+                    text = self.recognizer.recognize_google(audio_data)
+                    self.logger.info(f"Recognized text: {text}")
+            except Exception as e:
+                if "FLAC conversion utility not available" in str(e):
+                    self.logger.error(f"FLAC conversion error: {e}")
+                    self.logger.info("Attempting to use OpenAI Whisper API as fallback...")
+                    
+                    # Try to use OpenAI Whisper API as fallback if API key is available
+                    try:
+                        api_key = os.getenv("OPENAI_API_KEY")
+                        if api_key:
+                            import openai
+                            client = openai.OpenAI(api_key=api_key)
+                            
+                            with open(self.temp_wav_file, "rb") as audio_file:
+                                transcription = client.audio.transcriptions.create(
+                                    model="whisper-1", 
+                                    file=audio_file
+                                )
+                            
+                            text = transcription.text
+                            self.logger.info(f"OpenAI Whisper recognized text: {text}")
+                        else:
+                            self.logger.error("OPENAI_API_KEY not set. Cannot use Whisper API.")
+                            raise
+                    except Exception as whisper_error:
+                        self.logger.error(f"OpenAI Whisper fallback error: {whisper_error}")
+                        raise
+                else:
+                    raise
                 
             # Reset retry parameters on success
             self.retry_delay = 1
