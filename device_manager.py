@@ -115,7 +115,7 @@ class DeviceManager:
                                 self.logger.warning("No USB camera devices detected")
                         
                     # Try specific camera devices if default fails
-                    camera_paths = [self.camera_id, "/dev/video0", "/dev/usb_cam", 0, 1, 2]
+                    camera_paths = [self.camera_id, "/dev/video0", "/dev/usb_cam", 0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
                     
                     # Try each possible camera device
                     for cam_id in camera_paths:
