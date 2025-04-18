@@ -28,12 +28,14 @@ from logger_config import setup_logger
 from device_manager import DeviceManager
 from ai_processor import AIProcessor
 from ros_controller import RosController
+from error_translator import ErrorTranslator, ErrorContext
 
 class RobotVoiceInterface:
     def __init__(self, ros_enabled=True):
         self.logger = setup_logger()
         self.device_manager = DeviceManager(self.logger)
         self.ai_processor = AIProcessor(self.logger)
+        self.error_translator = ErrorTranslator(self.logger)
         self.running = True
         self.ros_enabled = ros_enabled
         
@@ -66,18 +68,39 @@ class RobotVoiceInterface:
             self.logger.info("Robot voice interface initialized - ready for operation on Raspberry Pi")
             return True
         except Exception as e:
-            self.logger.error(f"Initialization error: {str(e)}")
+            error_msg = str(e)
+            self.logger.error(f"Initialization error: {error_msg}")
+            
+            # Determine the appropriate error context based on the error message
+            error_context = ErrorContext.GENERAL
+            if "camera" in error_msg.lower() or "cv2" in error_msg.lower() or "video" in error_msg.lower():
+                error_context = ErrorContext.CAMERA
+            elif "microphone" in error_msg.lower() or "audio input" in error_msg.lower() or "arecord" in error_msg.lower():
+                error_context = ErrorContext.MICROPHONE
+            elif "speaker" in error_msg.lower() or "audio output" in error_msg.lower() or "aplay" in error_msg.lower():
+                error_context = ErrorContext.SPEAKER
+            elif "device" in error_msg.lower() or "hardware" in error_msg.lower() or "usb" in error_msg.lower():
+                error_context = ErrorContext.HARDWARE
+                
+            # Translate the error message to user-friendly language
+            friendly_error = self.error_translator.translate_error(error_msg, error_context)
+            self.logger.info(f"User-friendly explanation: {friendly_error}")
+            
             return False
 
     def run(self):
         """Main operation loop"""
         if not self.initialize():
-            self.logger.warning("Initialization incomplete - some features may not work until running on Raspberry Pi")
+            error_msg = "Initialization incomplete - some features may not work until running on Raspberry Pi"
+            self.logger.warning(error_msg)
 
         try:
             self.device_manager.speak_text("Hello, I'm ready to talk")
         except Exception as e:
-            self.logger.warning(f"Initial greeting failed (will work on Raspberry Pi): {str(e)}")
+            error_msg = str(e)
+            friendly_error = self.error_translator.translate_error(error_msg, ErrorContext.SPEAKER)
+            self.logger.warning(f"Initial greeting failed: {error_msg}")
+            self.logger.info(f"User-friendly explanation: {friendly_error}")
 
         while self.running:
             try:
@@ -254,11 +277,32 @@ class RobotVoiceInterface:
                 time.sleep(0.1)  # Small delay to prevent CPU overuse
 
             except Exception as e:
-                self.logger.error(f"Error in main loop: {str(e)}")
+                error_msg = str(e)
+                self.logger.error(f"Error in main loop: {error_msg}")
+                
+                # Determine the appropriate error context based on the error message
+                error_context = ErrorContext.GENERAL
+                if "camera" in error_msg.lower() or "cv2" in error_msg.lower() or "video" in error_msg.lower():
+                    error_context = ErrorContext.CAMERA
+                elif "microphone" in error_msg.lower() or "audio input" in error_msg.lower() or "arecord" in error_msg.lower():
+                    error_context = ErrorContext.MICROPHONE
+                elif "speaker" in error_msg.lower() or "audio output" in error_msg.lower() or "aplay" in error_msg.lower():
+                    error_context = ErrorContext.SPEAKER
+                elif "openai" in error_msg.lower() or "api key" in error_msg.lower() or "api call" in error_msg.lower():
+                    error_context = ErrorContext.API
+                elif "network" in error_msg.lower() or "http" in error_msg.lower() or "connection" in error_msg.lower():
+                    error_context = ErrorContext.NETWORK
+                elif "move" in error_msg.lower() or "motor" in error_msg.lower() or "servo" in error_msg.lower():
+                    error_context = ErrorContext.MOVEMENT
+                
+                # Translate the error message to user-friendly language
+                friendly_error = self.error_translator.translate_error(error_msg, error_context)
+                self.logger.info(f"User-friendly explanation: {friendly_error}")
+                
                 try:
-                    self.device_manager.speak_text("I encountered an error. Please try again")
-                except:
-                    self.logger.error("Could not provide error feedback through speech")
+                    self.device_manager.speak_text(friendly_error)
+                except Exception as speak_error:
+                    self.logger.error(f"Could not provide error feedback through speech: {str(speak_error)}")
 
     def cleanup(self):
         """Clean up resources"""
