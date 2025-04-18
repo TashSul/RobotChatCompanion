@@ -1,304 +1,270 @@
 #!/bin/bash
-# Raspberry Pi Camera Fix Script
-# This script performs a comprehensive fix for camera access issues on Raspberry Pi
+# Raspberry Pi Camera Fix Script for Robot Vision
+# This script fixes common camera issues on Raspberry Pi for the robot vision system
+# Run with sudo: sudo ./raspberry_pi_camera_fix.sh
 
-echo "=========================================================="
-echo "          Raspberry Pi Camera Access Fix Tool             "
-echo "=========================================================="
-echo "This script will diagnose and fix common camera access issues"
-echo "You may be prompted for your sudo password"
-echo ""
+# Color definitions
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[0;33m'
+BLUE='\033[0;34m'
+NC='\033[0m' # No Color
 
-# Function to print section headers
+# Check if running as root
+if [ "$EUID" -ne 0 ]; then
+  echo -e "${RED}Please run as root: sudo $0${NC}"
+  exit 1
+fi
+
+echo -e "${BLUE}=============================================${NC}"
+echo -e "${BLUE}  Raspberry Pi Camera Fix for Robot Vision  ${NC}"
+echo -e "${BLUE}=============================================${NC}"
+
+# Function to print section header
 print_section() {
-    echo ""
-    echo "=========================================================="
-    echo "  $1"
-    echo "=========================================================="
+  echo -e "\n${YELLOW}$1${NC}"
+  echo -e "${YELLOW}----------------------------------------${NC}"
 }
 
-# Check if running as root, if not, warn user
-if [ "$EUID" -ne 0 ]; then
-    echo "Note: This script is not running as root."
-    echo "Some operations require sudo privileges and you may be prompted for your password."
-    echo ""
+# Function to print success message
+success() {
+  echo -e "${GREEN}✓ $1${NC}"
+}
+
+# Function to print error message
+error() {
+  echo -e "${RED}✗ $1${NC}"
+}
+
+# Check if we're running on a Raspberry Pi
+if [ ! -f /proc/device-tree/model ] || ! grep -q "Raspberry Pi" /proc/device-tree/model; then
+  error "This script is designed for Raspberry Pi systems only"
+  exit 1
 fi
 
-# Check for camera hardware
-print_section "Checking for camera hardware"
-echo "Checking USB devices:"
-lsusb | grep -i "cam\|video\|webcam"
+# Get Raspberry Pi model
+MODEL=$(cat /proc/device-tree/model | tr -d '\0')
+echo -e "Detected: ${BLUE}$MODEL${NC}"
 
-if [ $? -ne 0 ]; then
-    echo "No USB camera detected with lsusb."
-    echo "Checking alternative methods..."
-    
-    # Try another detection method
-    if [ -d "/dev/v4l/by-id" ]; then
-        echo "Checking /dev/v4l/by-id:"
-        ls -la /dev/v4l/by-id
-    else
-        echo "No devices found in /dev/v4l/by-id"
-    fi
-fi
-
-# Check for video devices
-print_section "Checking for video devices"
-echo "Checking for video devices in /dev:"
-ls -l /dev/video* 2>/dev/null
-
-if [ $? -ne 0 ]; then
-    echo "No video devices found in /dev."
-    echo "This might indicate your camera is not properly connected or recognized."
-    echo "Try disconnecting and reconnecting the camera."
+# Check OS
+print_section "Checking Operating System"
+if [ -f /etc/os-release ]; then
+  . /etc/os-release
+  echo "OS: $PRETTY_NAME"
+  
+  # Check if this is Raspberry Pi OS (Raspbian)
+  if [[ "$PRETTY_NAME" == *"Raspberry Pi OS"* ]] || [[ "$PRETTY_NAME" == *"Raspbian"* ]]; then
+    success "Running on Raspberry Pi OS"
+  elif [[ "$PRETTY_NAME" == *"Ubuntu"* ]]; then
+    success "Running on Ubuntu for Raspberry Pi"
+  else
+    echo "Running on a different OS: $PRETTY_NAME"
+    echo "This script is tested on Raspberry Pi OS and Ubuntu, but should work on other Linux distributions"
+  fi
 else
-    echo "Found video devices. Setting permissions..."
-    sudo chmod 666 /dev/video* 2>/dev/null
-    echo "New permissions:"
-    ls -l /dev/video*
+  error "Could not determine OS"
 fi
 
-# Check v4l2 devices (more detailed)
-print_section "Checking V4L2 devices"
-if command -v v4l2-ctl &> /dev/null; then
-    v4l2-ctl --list-devices
+# Fix 1: Check and update camera configuration
+print_section "Checking Camera Configuration"
+
+# Determine config.txt location
+if [ -f /boot/config.txt ]; then
+  CONFIG_PATH="/boot/config.txt"
+elif [ -f /boot/firmware/config.txt ]; then
+  CONFIG_PATH="/boot/firmware/config.txt"
 else
-    echo "v4l2-ctl not found. Installing v4l-utils..."
-    sudo apt-get update
-    sudo apt-get install -y v4l-utils
-    echo "Checking V4L2 devices:"
-    v4l2-ctl --list-devices
+  error "Could not find config.txt in /boot or /boot/firmware"
+  exit 1
 fi
 
-# Install necessary packages
-print_section "Installing necessary packages"
-echo "Installing required packages for camera access:"
-sudo apt-get update
-sudo apt-get install -y v4l-utils python3-opencv libopencv-dev
+echo "Using config file: $CONFIG_PATH"
 
-# Reload uvcvideo module
-print_section "Reloading UVC video module"
-echo "Unloading and reloading the UVC video driver..."
-sudo modprobe -r uvcvideo
-sleep 2
-sudo modprobe uvcvideo
-sleep 2
-
-# Check if the module loaded correctly
-lsmod | grep uvc
-if [ $? -eq 0 ]; then
-    echo "UVC driver successfully reloaded."
+# Check if camera is enabled
+if grep -q "^start_x=1" $CONFIG_PATH; then
+  success "Camera is enabled in config.txt"
 else
-    echo "Failed to reload UVC driver. This may indicate an issue with your kernel or camera."
+  echo "Camera might not be enabled in config.txt"
+  echo "Adding start_x=1 to $CONFIG_PATH"
+  
+  # Back up config.txt
+  cp $CONFIG_PATH ${CONFIG_PATH}.backup
+  
+  # Add start_x=1 if not present
+  if ! grep -q "start_x=" $CONFIG_PATH; then
+    echo "start_x=1" >> $CONFIG_PATH
+    success "Added start_x=1 to $CONFIG_PATH"
+  else
+    # Replace start_x=0 with start_x=1
+    sed -i 's/start_x=0/start_x=1/g' $CONFIG_PATH
+    success "Updated start_x to 1 in $CONFIG_PATH"
+  fi
+  
+  # Add gpu_mem=128 if not present
+  if ! grep -q "gpu_mem=" $CONFIG_PATH; then
+    echo "gpu_mem=128" >> $CONFIG_PATH
+    success "Added gpu_mem=128 to $CONFIG_PATH"
+  fi
+  
+  echo "Original config.txt backed up to ${CONFIG_PATH}.backup"
+  echo "You will need to reboot for these changes to take effect"
 fi
 
-# Create symlinks if needed
-print_section "Setting up device symlinks"
-if [ ! -e "/dev/video0" ]; then
-    echo "/dev/video0 doesn't exist. Looking for alternative video devices..."
-    
-    # Find first available video device
-    for i in $(ls /dev/video* 2>/dev/null); do
-        if [ -e "$i" ]; then
-            echo "Found alternative video device: $i"
-            echo "Creating symlink from $i to /dev/video0..."
-            sudo ln -sf "$i" /dev/video0
-            if [ -e "/dev/video0" ]; then
-                echo "Symlink created successfully."
-                echo "New symlink:"
-                ls -l /dev/video0
-            else
-                echo "Failed to create symlink."
-            fi
-            break
-        fi
-    done
+# Fix 2: Check and load camera modules
+print_section "Checking Camera Kernel Modules"
+
+# Check if camera kernel module is loaded
+if lsmod | grep -q "bcm2835_v4l2"; then
+  success "Camera kernel module 'bcm2835_v4l2' is loaded"
 else
-    echo "/dev/video0 already exists:"
-    ls -l /dev/video0
+  echo "Loading camera module 'bcm2835_v4l2'..."
+  modprobe bcm2835_v4l2
+  
+  if lsmod | grep -q "bcm2835_v4l2"; then
+    success "Successfully loaded camera module"
+  else
+    error "Failed to load camera module"
+    echo "Add 'bcm2835_v4l2' to /etc/modules to load at boot time"
+  fi
 fi
 
-# Add user to video group to ensure permissions
-print_section "Setting up user permissions"
-echo "Adding current user to video group..."
-sudo usermod -a -G video $USER
-echo "User added to video group. You may need to log out and back in for this to take effect."
-echo "Current groups for $USER:"
-groups $USER
+# Fix 3: Set up /dev/usb_cam symlink
+print_section "Setting up Camera Symlinks"
 
-# Custom fix for Raspberry Pi specific issues
-print_section "Raspberry Pi specific fixes"
-
-# Check for and enable the camera interface if using a Raspberry Pi camera module
-if [ -f "/boot/config.txt" ]; then
-    echo "Checking Raspberry Pi camera configuration..."
-    if grep -q "^start_x=1" /boot/config.txt; then
-        echo "Camera interface already enabled in /boot/config.txt"
-    else
-        echo "Enabling camera interface in /boot/config.txt..."
-        sudo sed -i 's/^start_x=0/start_x=1/' /boot/config.txt
-        if ! grep -q "^start_x=" /boot/config.txt; then
-            echo "Adding start_x=1 to /boot/config.txt..."
-            echo "start_x=1" | sudo tee -a /boot/config.txt
-        fi
-        echo "Camera interface enabled. A reboot is required for changes to take effect."
-    fi
-    
-    # Ensure GPU memory is sufficient for camera
-    if grep -q "^gpu_mem=" /boot/config.txt; then
-        gpu_mem=$(grep "^gpu_mem=" /boot/config.txt | cut -d= -f2)
-        if [ "$gpu_mem" -lt 128 ]; then
-            echo "Increasing GPU memory from $gpu_mem to 128MB..."
-            sudo sed -i 's/^gpu_mem=.*/gpu_mem=128/' /boot/config.txt
-            echo "GPU memory increased. A reboot is required for changes to take effect."
-        else
-            echo "GPU memory already set to $gpu_mem MB, which should be sufficient."
-        fi
-    else
-        echo "Setting GPU memory to 128MB..."
-        echo "gpu_mem=128" | sudo tee -a /boot/config.txt
-        echo "GPU memory set. A reboot is required for changes to take effect."
-    fi
-    
-    reboot_needed=true
+# First check for video devices
+if ls /dev/video* >/dev/null 2>&1; then
+  VIDEO_DEVICES=$(ls /dev/video* | wc -l)
+  success "Found $VIDEO_DEVICES video device(s)"
+  
+  # Create symlink to first video device if it doesn't exist
+  if [ -L /dev/usb_cam ]; then
+    echo "Symlink /dev/usb_cam already exists, pointing to $(readlink /dev/usb_cam)"
+    echo "Removing existing symlink and recreating..."
+    rm -f /dev/usb_cam
+  fi
+  
+  FIRST_VIDEO=$(ls /dev/video* | head -1)
+  ln -sf $FIRST_VIDEO /dev/usb_cam
+  success "Created symlink: /dev/usb_cam -> $FIRST_VIDEO"
+else
+  error "No video devices found in /dev"
+  echo "Camera not detected or driver not loaded"
 fi
 
-# Test camera with Python OpenCV
-print_section "Testing camera with OpenCV"
-echo "Testing camera access with OpenCV..."
-echo "This will try each possible camera index (0-9) to find your camera"
+# Fix 4: Set proper permissions
+print_section "Setting Permissions"
 
-# Create a temporary Python script to test camera access
-cat > /tmp/test_camera.py << 'EOF'
-import cv2
-import sys
+# Fix permissions on video devices
+echo "Setting permissions on camera devices..."
+chmod a+rw /dev/video* 2>/dev/null
+success "Updated permissions on camera devices"
 
-def test_camera(index):
-    print(f"Testing camera index {index}...")
-    cap = cv2.VideoCapture(index)
-    if not cap.isOpened():
-        print(f"Could not open camera at index {index}")
-        return False, None
-    
-    ret, frame = cap.read()
-    if not ret:
-        print(f"Camera opened at index {index} but could not read frame")
-        cap.release()
-        return False, None
-    
-    print(f"SUCCESS: Camera working at index {index}")
-    print(f"Frame dimensions: {frame.shape[1]}x{frame.shape[0]}")
-    
-    # Save a test image
-    test_file = f"camera_test_idx{index}.jpg"
-    cv2.imwrite(test_file, frame)
-    print(f"Saved test image to {test_file}")
-    
-    cap.release()
-    return True, index
+# Make sure user is in video group
+USER_TO_ADD=${SUDO_USER:-pi}
+if ! groups $USER_TO_ADD | grep -q "video"; then
+  echo "Adding user $USER_TO_ADD to video group..."
+  usermod -a -G video $USER_TO_ADD
+  success "Added $USER_TO_ADD to video group"
+else
+  success "User $USER_TO_ADD is already in video group"
+fi
 
-def main():
-    working_index = None
-    
-    # Try indices 0-9
-    for i in range(10):
-        success, index = test_camera(i)
-        if success:
-            working_index = index
-            break
-    
-    if working_index is not None:
-        print(f"\nCamera found at index {working_index}")
-        print("Use this index in your Python code: cv2.VideoCapture({})".format(working_index))
-        
-        print("\nCreating a helper script to use this camera index...")
-        with open("use_camera.py", "w") as f:
-            f.write(f"""#!/usr/bin/env python3
-# Quick camera test script
-import cv2
-import time
+# Fix 5: Kill any processes that might be using the camera
+print_section "Checking for Processes Using the Camera"
 
-def main():
-    print("Opening camera at index {working_index}...")
-    cap = cv2.VideoCapture({working_index})
-    if not cap.isOpened():
-        print("Error: Could not open camera")
-        return
-    
-    print("Camera opened successfully")
-    print("Press 'q' to exit")
-    
-    while True:
-        ret, frame = cap.read()
-        if not ret:
-            print("Error: Could not read frame")
-            break
-        
-        cv2.imshow('Camera Test', frame)
-        
-        if cv2.waitKey(1) & 0xFF == ord('q'):
-            break
-    
-    cap.release()
-    cv2.destroyAllWindows()
+# Check if any processes are using the camera
+if lsof /dev/video* >/dev/null 2>&1; then
+  echo "Found processes using the camera:"
+  lsof /dev/video*
+  
+  echo "Killing processes using the camera..."
+  fuser -k /dev/video* 2>/dev/null
+  success "Terminated processes using camera"
+else
+  success "No processes are currently using the camera"
+fi
 
-if __name__ == "__main__":
-    main()
-""")
-        print("Created use_camera.py - run with: python3 use_camera.py")
-        
-        # Update the device_manager.py if it exists
-        try:
-            if working_index != 0:
-                import fileinput
-                import re
-                
-                file_path = "device_manager.py"
-                with open(file_path, 'r') as file:
-                    content = file.read()
-                
-                # Update the camera_id
-                camera_id_pattern = r'self\.camera_id\s*=\s*\d+'
-                if re.search(camera_id_pattern, content):
-                    new_content = re.sub(camera_id_pattern, f'self.camera_id = {working_index}', content)
-                    with open(file_path, 'w') as file:
-                        file.write(new_content)
-                    print(f"Updated device_manager.py to use camera index {working_index}")
-        except Exception as e:
-            print(f"Could not update device_manager.py: {e}")
-    else:
-        print("\nNo working camera found.")
-        print("Make sure the camera is properly connected and try again.")
-        print("You may need to reboot after the changes made by this script.")
+# Fix 6: Test camera capture
+print_section "Testing Camera Capture"
 
-if __name__ == "__main__":
-    main()
+# Check if v4l-utils is installed
+if ! command -v v4l2-ctl >/dev/null; then
+  echo "Installing v4l-utils for camera testing..."
+  apt-get update && apt-get install -y v4l-utils
+  success "Installed v4l-utils"
+else
+  success "v4l-utils is already installed"
+fi
+
+# Check camera capabilities
+echo "Camera device capabilities:"
+v4l2-ctl --device=/dev/usb_cam --all | grep -E "Driver|Card|Video input|Format"
+
+# Try to capture a test image with v4l2-ctl
+echo "Capturing test image with v4l2-ctl..."
+TEST_IMG_PATH="/tmp/camera_test_$(date +%Y%m%d%H%M%S).jpg"
+v4l2-ctl --device=/dev/usb_cam --set-fmt-video=width=640,height=480,pixelformat=MJPG --stream-mmap --stream-to=$TEST_IMG_PATH --stream-count=1
+
+if [ -f $TEST_IMG_PATH ]; then
+  success "Successfully captured test image to $TEST_IMG_PATH"
+  echo "You can view this image to confirm camera is working"
+else
+  error "Failed to capture test image"
+fi
+
+# Install fswebcam if not available (simple utility to test camera)
+if ! command -v fswebcam >/dev/null; then
+  echo "Installing fswebcam for camera testing..."
+  apt-get update && apt-get install -y fswebcam
+  success "Installed fswebcam"
+fi
+
+# Try to capture a test image with fswebcam
+echo "Capturing test image with fswebcam..."
+FSWEBCAM_IMG_PATH="/tmp/fswebcam_test_$(date +%Y%m%d%H%M%S).jpg"
+fswebcam -d /dev/usb_cam -r 640x480 $FSWEBCAM_IMG_PATH
+
+if [ -f $FSWEBCAM_IMG_PATH ]; then
+  success "Successfully captured test image with fswebcam to $FSWEBCAM_IMG_PATH"
+else
+  error "Failed to capture test image with fswebcam"
+fi
+
+# Fix 7: Add camera module to load at boot
+print_section "Setting Up Automatic Module Loading"
+
+if ! grep -q "bcm2835_v4l2" /etc/modules; then
+  echo "Adding camera module to /etc/modules for loading at boot time..."
+  echo "bcm2835_v4l2" >> /etc/modules
+  success "Added bcm2835_v4l2 to /etc/modules"
+else
+  success "Camera module already configured to load at boot time"
+fi
+
+# Create udev rule for camera
+print_section "Setting Up Camera udev Rules"
+
+UDEV_RULE="/etc/udev/rules.d/99-camera.rules"
+echo "Creating udev rule for camera..."
+cat > $UDEV_RULE << EOF
+# Rules for camera devices
+KERNEL=="video*", SUBSYSTEM=="video4linux", GROUP="video", MODE="0666"
+# Create persistent symlink to the first camera
+KERNEL=="video0", SUBSYSTEM=="video4linux", SYMLINK+="usb_cam"
 EOF
 
-# Run the camera test script
-echo "Running camera test script..."
-python3 /tmp/test_camera.py
+success "Created udev rule: $UDEV_RULE"
+echo "Reloading udev rules..."
+udevadm control --reload-rules
+udevadm trigger
 
-# Final recommendations
-print_section "Final recommendations"
-echo "If your camera still doesn't work after these fixes, try:"
-echo "1. Reboot your Raspberry Pi"
-echo "2. Try a different USB port (preferably USB 3.0 if available)"
-echo "3. Try a different USB cable"
-echo "4. Make sure your camera is compatible with Raspberry Pi"
-echo "5. Check the camera manufacturer's website for Linux drivers"
+print_section "Next Steps"
 
-# Add a recommendation for using Whisper API
-echo "6. If your camera works but speech recognition still fails:"
-echo "   Make sure you've installed the FLAC utility with:"
-echo "   sudo apt-get install -y flac"
-echo "   Your code will automatically fall back to OpenAI Whisper API if needed"
-
-if [ "$reboot_needed" = true ]; then
-    print_section "Reboot Required"
-    echo "Some changes require a reboot to take effect."
-    echo "Please reboot your Raspberry Pi with: sudo reboot"
-fi
-
-echo ""
-echo "Camera fix script completed!"
+echo -e "${GREEN}Camera setup completed!${NC}"
+echo "Here are the next steps:"
+echo "1. Reboot your Raspberry Pi: sudo reboot"
+echo "2. After reboot, test the camera with: python3 test_camera_diagnostics.py"
+echo "3. If issues persist, run: python3 fix_camera_detection.py"
+echo
+echo -e "${YELLOW}NOTE:${NC} Some changes require a reboot to take effect"
+echo "For ongoing issues, check the camera connection or try a different USB port"

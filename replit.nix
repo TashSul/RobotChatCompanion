@@ -1,5 +1,6 @@
 {pkgs}: {
   deps = [
+    pkgs.usbutils
     pkgs.espeak
     pkgs.alsa-utils
     pkgs.portaudio

@@ -35,6 +35,17 @@ class DeviceManager:
         
         # Camera ID - video0 for USB camera
         self.camera_id = 0  # /dev/usb_cam -> video0
+        
+        # Additional camera settings for troubleshooting
+        self.camera_retries = 3
+        self.camera_device_paths = [
+            "/dev/video0", 
+            "/dev/video1", 
+            "/dev/video2", 
+            "/dev/usb_cam", 
+            "/dev/webcam",
+            0, 1, 2, 3, 4, 5, 6, 7, 8, 9, -1
+        ]
 
         # Temporary file for audio recording
         self.temp_wav_file = os.path.join(tempfile.gettempdir(), "robot_audio.wav")
@@ -113,7 +124,7 @@ class DeviceManager:
                                 self.logger.warning("No USB camera devices detected")
                         
                     # Try specific camera devices if default fails
-                    camera_paths = [self.camera_id, "/dev/video0", "/dev/usb_cam", 0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+                    camera_paths = self.camera_device_paths
                     
                     # Try each possible camera device
                     for cam_id in camera_paths:
@@ -431,7 +442,7 @@ class DeviceManager:
                 self.logger.error(f"Text-to-speech error: {str(e)}")
 
     def capture_image(self):
-        """Capture image from camera"""
+        """Capture image from camera with enhanced error handling and diagnostics"""
         # Check if cv2 is available
         if cv2 is None:
             if self._should_retry("OpenCV not available"):
@@ -440,21 +451,110 @@ class DeviceManager:
             
         # Check if camera is initialized
         if self.camera is None or not self.camera.isOpened():
-            if self._should_retry("Camera is not initialized"):
+            # Try to reinitialize camera if it was previously working but has disconnected
+            self.logger.warning("Camera is not initialized or connection lost - attempting to reinitialize")
+            
+            try:
+                # Try specific camera devices if default fails
+                camera_paths = self.camera_device_paths
+                
+                self.logger.info("Attempting to reopen camera...")
+                # Try each possible camera device
+                for cam_id in camera_paths:
+                    try:
+                        self.logger.info(f"Trying camera device: {cam_id}")
+                        self.camera = cv2.VideoCapture(cam_id)
+                        if self.camera.isOpened():
+                            # Try to read a test frame to verify it's working
+                            ret, test_frame = self.camera.read()
+                            if ret and test_frame is not None and test_frame.size > 0:
+                                self.logger.info(f"Camera reinitialized successfully with device {cam_id}")
+                                # Try to capture the real frame now
+                                ret, frame = self.camera.read()
+                                if ret:
+                                    return frame
+                            else:
+                                self.logger.warning(f"Camera {cam_id} opened but failed to capture test frame")
+                                self.camera.release()
+                                self.camera = None
+                    except Exception as e:
+                        self.logger.warning(f"Failed to reopen camera {cam_id}: {str(e)}")
+            except Exception as e:
+                self.logger.error(f"Camera reinitialization error: {str(e)}")
+            
+            # If we reach here, reinitialization failed
+            if self._should_retry("Camera is not initialized after reinitialization attempts"):
                 self.logger.error("Camera is not initialized")
             return None
 
+        # Camera is initialized, attempt to capture frame
         try:
+            # Set a timeout to prevent hanging
+            start_time = time.time()
+            
+            # Attempt to capture a frame
             ret, frame = self.camera.read()
-            if ret:
+            
+            # Check how long it took
+            capture_time = time.time() - start_time
+            if capture_time > 1.0:  # More than 1 second is suspicious
+                self.logger.warning(f"Camera frame capture took {capture_time:.2f} seconds")
+            
+            if ret and frame is not None and frame.size > 0:
                 return frame
             else:
+                # Camera opened but didn't return a valid frame
+                self.logger.warning(f"Camera opened but returned invalid frame: ret={ret}, frame empty={frame is None}")
+                
+                # Try to get camera properties for diagnostics
+                try:
+                    if self.camera.isOpened():
+                        width = self.camera.get(cv2.CAP_PROP_FRAME_WIDTH)
+                        height = self.camera.get(cv2.CAP_PROP_FRAME_HEIGHT)
+                        fps = self.camera.get(cv2.CAP_PROP_FPS)
+                        self.logger.info(f"Camera properties: {width}x{height} at {fps} FPS")
+                except Exception as diag_e:
+                    self.logger.warning(f"Error getting camera diagnostics: {diag_e}")
+                
+                # Try to reinitialize the camera
+                try:
+                    if self.camera.isOpened():
+                        self.logger.info("Releasing and reopening camera")
+                        self.camera.release()
+                        time.sleep(0.5)  # Short delay before reopening
+                        self.camera = cv2.VideoCapture(self.camera_id)
+                        if self.camera.isOpened():
+                            self.logger.info("Camera reopened successfully")
+                            # Try to read a frame again
+                            ret, frame = self.camera.read()
+                            if ret and frame is not None and frame.size > 0:
+                                return frame
+                except Exception as reinit_e:
+                    self.logger.warning(f"Error reinitializing camera: {reinit_e}")
+                
                 if self._should_retry("Failed to capture image"):
                     self.logger.error("Failed to capture image")
                 return None
         except Exception as e:
-            if self._should_retry(f"Camera error: {str(e)}"):
-                self.logger.error(f"Error capturing image: {str(e)}")
+            error_msg = str(e)
+            if self._should_retry(f"Camera error: {error_msg}"):
+                self.logger.error(f"Error capturing image: {error_msg}")
+                
+                # Try to get additional diagnostic information
+                if "Resource temporarily unavailable" in error_msg or "Device or resource busy" in error_msg:
+                    # This typically means another process is using the camera
+                    self.logger.info("Checking for other processes using the camera...")
+                    try:
+                        processes = subprocess.run(
+                            "lsof /dev/video* 2>/dev/null || echo 'lsof not available'", 
+                            shell=True, capture_output=True, text=True
+                        )
+                        if processes.stdout and "lsof not available" not in processes.stdout:
+                            self.logger.info(f"Processes using camera: {processes.stdout}")
+                        else:
+                            self.logger.info("No processes found using the camera or lsof not available")
+                    except Exception as proc_e:
+                        self.logger.warning(f"Error checking camera processes: {proc_e}")
             return None
 
     def identify_object(self) -> str:
