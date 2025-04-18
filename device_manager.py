@@ -33,6 +33,22 @@ class DeviceManager:
         self.microphone_device = "plughw:3,0"  # USB PnP Sound Device (microphone)
         self.speaker_device = "plughw:2,0"     # iStore Audio (speaker)
         
+        # Voice settings for text-to-speech
+        self.voice_settings = {
+            "use_natural_voice": True,     # Use OpenAI TTS instead of espeak
+            "voice_type": "nova",          # Default voice: nova (natural female)
+            "available_voices": {
+                "nova": "Natural female voice",
+                "alloy": "Neutral voice",
+                "echo": "Male voice",
+                "fable": "Expressive male voice",
+                "onyx": "Deep male voice",
+                "shimmer": "Energetic female voice"
+            },
+            "speed": 1.0,                  # Speech speed multiplier
+            "pitch": 1.0                   # Pitch adjustment (for espeak)
+        }
+        
         # Camera ID - video0 for USB camera
         self.camera_id = 0  # /dev/usb_cam -> video0
         
@@ -406,7 +422,7 @@ class DeviceManager:
             return ""
 
     def speak_text(self, text: str):
-        """Convert text to speech using espeak and aplay"""
+        """Convert text to speech using OpenAI TTS API for natural voice or fallback to espeak"""
         try:
             self.logger.info(f"Speaking: {text}")
             
@@ -424,15 +440,83 @@ class DeviceManager:
                 self.logger.error("Audio hardware required for speech but not available - simulation disabled")
                 return
             
+            # Check if we should use natural voice (OpenAI TTS) or robotic voice (espeak)
+            if self.voice_settings["use_natural_voice"]:
+                try:
+                    # Check if we have the OpenAI API key
+                    api_key = os.getenv("OPENAI_API_KEY")
+                    if api_key:
+                        self.logger.info(f"Using OpenAI TTS with voice: {self.voice_settings['voice_type']}")
+                        
+                        # Initialize OpenAI client
+                        client = openai.OpenAI(api_key=api_key)
+                        
+                        # Define temporary file paths
+                        speech_file_path = os.path.join(tempfile.gettempdir(), "robot_speech.mp3")
+                        
+                        # Generate speech using OpenAI TTS
+                        response = client.audio.speech.create(
+                            model="tts-1",
+                            voice=self.voice_settings["voice_type"],
+                            speed=self.voice_settings["speed"],
+                            input=text
+                        )
+                        
+                        # Save the audio to a file
+                        response.stream_to_file(speech_file_path)
+                        
+                        # Play the audio using appropriate player
+                        if subprocess.run("which ffplay", shell=True, capture_output=True).returncode == 0:
+                            self.logger.info("Playing audio with ffplay")
+                            subprocess.run(
+                                f"ffplay -nodisp -autoexit {speech_file_path} > /dev/null 2>&1",
+                                shell=True,
+                                check=True
+                            )
+                        elif subprocess.run("which mplayer", shell=True, capture_output=True).returncode == 0:
+                            self.logger.info("Playing audio with mplayer")
+                            subprocess.run(
+                                f"mplayer {speech_file_path} > /dev/null 2>&1",
+                                shell=True,
+                                check=True
+                            )
+                        else:
+                            # Fallback to aplay (may not sound as good with mp3)
+                            self.logger.info(f"Playing OpenAI TTS audio through device: {self.speaker_device}")
+                            subprocess.run(
+                                f"aplay -D {self.speaker_device} {speech_file_path}",
+                                shell=True,
+                                check=True
+                            )
+                        
+                        # Successfully used OpenAI TTS
+                        return
+                    else:
+                        self.logger.warning("OpenAI API key not available, falling back to espeak")
+                except Exception as openai_err:
+                    self.logger.warning(f"Error using OpenAI TTS, falling back to espeak: {openai_err}")
+            else:
+                self.logger.info("Natural voice disabled, using espeak")
+            
+            # Fallback to espeak if OpenAI TTS fails, is not available, or is disabled
+            self.logger.info("Using espeak for text-to-speech")
+            
             # Create a temporary file for the text
             text_file = os.path.join(tempfile.gettempdir(), "robot_speech.txt")
             with open(text_file, "w") as f:
                 f.write(text)
             
+            # Build espeak command with pitch adjustment if needed
+            espeak_cmd = "espeak"
+            if self.voice_settings["pitch"] != 1.0:
+                # Espeak pitch is 0-99, default 50. Convert our 0.5-1.5 range to 25-75
+                pitch_value = int(25 + (self.voice_settings["pitch"] * 50))
+                espeak_cmd += f" -p {pitch_value}"
+            
             # Use espeak to convert text to speech and pipe to aplay
             self.logger.info(f"Playing speech through device: {self.speaker_device}")
             subprocess.run(
-                f"espeak -f {text_file} --stdout | aplay -D {self.speaker_device}",
+                f"{espeak_cmd} -f {text_file} --stdout | aplay -D {self.speaker_device}",
                 shell=True,
                 check=True
             )

@@ -181,3 +181,62 @@ class AIProcessor:
                     return object_name
                     
         return None
+        
+    def change_voice(self, device_manager, voice_name: str = None) -> str:
+        """Change the robot's voice
+        
+        Args:
+            device_manager: The DeviceManager instance to update
+            voice_name: Name of the voice to use, or None to list available voices
+            
+        Returns:
+            str: Response message
+        """
+        # If no voice name provided, list available voices
+        if not voice_name:
+            available_voices = device_manager.voice_settings.get("available_voices", {})
+            voice_list = "\n".join([f"- {name}: {desc}" for name, desc in available_voices.items()])
+            return f"Available voices:\n{voice_list}\n\nSay 'use voice [name]' to change my voice."
+        
+        # Convert to lowercase for case-insensitive matching
+        voice_name = voice_name.lower()
+        
+        # Get list of available voices
+        available_voices = device_manager.voice_settings.get("available_voices", {})
+        
+        # Check if the requested voice is available
+        voice_match = None
+        for voice_id, description in available_voices.items():
+            if voice_id.lower() == voice_name or voice_name in description.lower():
+                voice_match = voice_id
+                break
+        
+        if voice_match:
+            # Update the voice setting
+            device_manager.voice_settings["voice_type"] = voice_match
+            self.logger.info(f"Changed voice to: {voice_match}")
+            return f"Voice changed to {voice_match}. {available_voices.get(voice_match, '')}"
+        else:
+            return f"Voice '{voice_name}' not found. Available voices are: {', '.join(available_voices.keys())}"
+            
+    def adjust_voice_speed(self, device_manager, speed_factor: float) -> str:
+        """Adjust the speaking speed of the robot's voice
+        
+        Args:
+            device_manager: The DeviceManager instance to update
+            speed_factor: Speed factor (0.5 to 1.5)
+            
+        Returns:
+            str: Response message
+        """
+        # Ensure speed is within allowed range
+        if speed_factor < 0.5:
+            speed_factor = 0.5
+        elif speed_factor > 1.5:
+            speed_factor = 1.5
+            
+        # Update the speed setting
+        device_manager.voice_settings["speed"] = speed_factor
+        self.logger.info(f"Changed voice speed to: {speed_factor}")
+        
+        return f"Voice speed adjusted to {speed_factor}x"

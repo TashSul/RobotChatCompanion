@@ -1,5 +1,6 @@
 {pkgs}: {
   deps = [
+    pkgs.ffmpeg
     pkgs.usbutils
     pkgs.espeak
     pkgs.alsa-utils

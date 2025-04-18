@@ -237,6 +237,51 @@ class RobotVoiceInterface:
                         training_response = self.ai_processor.add_training_sample(identification_result)
                         self.device_manager.speak_text(training_response)
                         continue
+                        
+                    # Voice control commands
+                    elif any(phrase in user_input.lower() for phrase in ["change voice", "change your voice", "use voice", "switch voice"]):
+                        # Extract the voice name - everything after the command phrase
+                        voice_name = None
+                        for phrase in ["change voice", "change your voice", "use voice", "switch voice"]:
+                            if phrase in user_input.lower():
+                                parts = user_input.lower().split(phrase)
+                                if len(parts) > 1:
+                                    voice_name = parts[1].strip()
+                                break
+                                
+                        if voice_name:
+                            response = self.ai_processor.change_voice(self.device_manager, voice_name)
+                            self.device_manager.speak_text(response)
+                            continue
+                        else:
+                            # No voice specified, list available voices
+                            response = self.ai_processor.change_voice(self.device_manager)
+                            self.device_manager.speak_text(response)
+                            continue
+                    
+                    # Is this a voice speed adjustment command?
+                    elif any(phrase in user_input.lower() for phrase in ["speak faster", "talk faster", "speed up", 
+                                                                         "speak slower", "talk slower", "slow down"]):
+                        if any(phrase in user_input.lower() for phrase in ["faster", "speed up"]):
+                            # Increase speed by 25%
+                            current_speed = self.device_manager.voice_settings["speed"]
+                            new_speed = min(1.5, current_speed + 0.25)
+                            response = self.ai_processor.adjust_voice_speed(self.device_manager, new_speed)
+                        else:
+                            # Decrease speed by 25%
+                            current_speed = self.device_manager.voice_settings["speed"]
+                            new_speed = max(0.5, current_speed - 0.25)
+                            response = self.ai_processor.adjust_voice_speed(self.device_manager, new_speed)
+                            
+                        self.device_manager.speak_text(response)
+                        continue
+                        
+                    # Is this a voice list command?
+                    elif any(phrase in user_input.lower() for phrase in ["list voices", "what voices", 
+                                                                         "available voices", "show voices"]):
+                        response = self.ai_processor.change_voice(self.device_manager)
+                        self.device_manager.speak_text(response)
+                        continue
                     
                     # Check if this is a ROS movement/action command
                     elif self.ros_enabled and self.ros_controller:
